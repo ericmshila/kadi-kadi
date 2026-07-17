@@ -86,36 +86,6 @@ class Card:
         return self.label()
 
 
-# def build_deck(include_jokers: int = 2) -> list[Card]:
-#     """
-#     Build a standard deck.
-#     """
-
-#     deck: list[Card] = []
-
-#     for suit in Suit:
-#         for rank in Rank:
-#             if rank == Rank.JOKER:
-#                 continue
-
-#             deck.append(
-#                 Card(
-#                     rank=rank,
-#                     suit=suit,
-#                 )
-#             )
-
-#     for _ in range(include_jokers):
-#         deck.append(
-#             Card(
-#                 rank=Rank.JOKER,
-#                 suit=None,
-#             )
-#         )
-
-#     return deck
-
-
 def build_deck(
     seed: Optional[int] = None,
     include_jokers: int = 2,
