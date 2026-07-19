@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 
-from app.api.schemas import CreateRoomResponse,JoinRoomRequest
+from app.api.schemas import CreateRoomResponse,JoinRoomRequest,StartGameResponse
 from app.game.dependencies import room_manager
 
 from app.rules.state import Player
@@ -74,4 +74,102 @@ def join_room(
     return {
         "room_id": room.room_id,
         "player_count": len(room.players),
+    }
+    
+@router.post(
+    "/rooms/{room_id}/start",
+    response_model=StartGameResponse,
+)
+def start_game(room_id: str):
+
+    try:
+        room = room_manager.get_room(room_id)
+
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail="Room not found",
+        )
+
+    try:
+        events = room.start_game()
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
+
+    return StartGameResponse(
+        started=True,
+        event_count=len(events),
+        current_player=room.state.current_player.id,
+    )
+    
+@router.get("/rooms/{room_id}/state")
+def get_game_state(room_id: str):
+
+    try:
+        room = room_manager.get_room(room_id)
+
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail="Room not found",
+        )
+
+    if room.state is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Game has not started",
+        )
+
+    return {
+        "current_player": room.state.current_player.id,
+        "phase": room.state.phase.value,
+        "top_card": room.state.top_card.label(),
+        "direction": room.state.direction,
+        "winner_id": room.state.winner_id,
+        "players": [
+            {
+                "id": player.id,
+                "card_count": len(
+                    room.state.hand_of(player.id)
+                ),
+            }
+            for player in room.state.players
+        ],
+    }
+    
+@router.get("/rooms/{room_id}/state")
+def get_game_state(room_id: str):
+
+    try:
+        room = room_manager.get_room(room_id)
+
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail="Room not found",
+        )
+
+    if room.state is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Game has not started",
+        )
+
+    return {
+        "current_player": room.state.current_player.id,
+        "phase": room.state.phase.value,
+        "top_card": room.state.top_card.label(),
+        "direction": room.state.direction,
+        "winner_id": room.state.winner_id,
+        "players": [
+            {
+                "id": player.id,
+                "card_count": len(room.state.hand_of(player.id)),
+            }
+            for player in room.state.players
+        ],
     }
