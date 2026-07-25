@@ -1,5 +1,18 @@
+from typing import Optional
+
 from pydantic import BaseModel
 
+
+class PlayCardRequest(BaseModel):
+    player_id: str
+
+    rank: str
+
+    suit: Optional[str] = None
+
+    declared_suit: Optional[str] = None
+
+    declare_niko_kadi: bool = False
 
 class CreateRoomResponse(BaseModel):
     room_id: str

@@ -1,9 +1,28 @@
 from fastapi import APIRouter, HTTPException
 
-from app.api.schemas import CreateRoomResponse,JoinRoomRequest,StartGameResponse
 from app.game.dependencies import room_manager
 
 from app.rules.state import Player
+from app.api.schemas import (
+    CreateRoomResponse,
+    JoinRoomRequest,
+    StartGameResponse,
+    PlayCardRequest,
+)
+
+from app.rules.actions import (
+    ActionType,
+    PlayCardsAction,
+)
+
+from app.rules.cards import (
+    Card,
+    Rank,
+    Suit,
+)
+
+from app.rules.engine import IllegalMove
+
 
 router = APIRouter(
     prefix="/api",
@@ -141,8 +160,11 @@ def get_game_state(room_id: str):
         ],
     }
     
-@router.get("/rooms/{room_id}/state")
-def get_game_state(room_id: str):
+@router.post("/rooms/{room_id}/play")
+def play_card(
+    room_id: str,
+    payload: PlayCardRequest,
+):
 
     try:
         room = room_manager.get_room(room_id)
@@ -159,17 +181,50 @@ def get_game_state(room_id: str):
             detail="Game has not started",
         )
 
+    try:
+        card = Card(
+            rank=Rank(payload.rank),
+            suit=Suit(payload.suit)
+            if payload.suit is not None
+            else None,
+        )
+
+        declared_suit = (
+            Suit(payload.declared_suit)
+            if payload.declared_suit is not None
+            else None
+        )
+
+        action = PlayCardsAction(
+            player_id=payload.player_id,
+            type=ActionType.PLAY_CARDS,
+            cards=(card,),
+            declared_suit=declared_suit,
+            declare_niko_kadi=payload.declare_niko_kadi,
+        )
+
+        events = room.apply(action)
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid card: {exc}",
+        )
+
+    except IllegalMove as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
+
     return {
-        "current_player": room.state.current_player.id,
-        "phase": room.state.phase.value,
-        "top_card": room.state.top_card.label(),
-        "direction": room.state.direction,
-        "winner_id": room.state.winner_id,
-        "players": [
+        "success": True,
+        "event_count": len(events),
+        "events": [
             {
-                "id": player.id,
-                "card_count": len(room.state.hand_of(player.id)),
+                "type": event.type.value,
+                "payload": event.payload,
             }
-            for player in room.state.players
+            for event in events
         ],
     }
