@@ -2,6 +2,12 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+class DrawRequest(BaseModel):
+    player_id: str
+    
+class PassRequest(BaseModel):
+    player_id: str
+
 
 class PlayCardRequest(BaseModel):
     player_id: str

@@ -8,11 +8,15 @@ from app.api.schemas import (
     JoinRoomRequest,
     StartGameResponse,
     PlayCardRequest,
+    DrawRequest,
+    PassRequest,
 )
 
 from app.rules.actions import (
     ActionType,
     PlayCardsAction,
+    DrawAction,
+    PassAction,
 )
 
 from app.rules.cards import (
@@ -160,6 +164,50 @@ def get_game_state(room_id: str):
         ],
     }
     
+@router.get("/rooms/{room_id}/debug")
+def debug_room(room_id: str):
+
+    try:
+        room = room_manager.get_room(room_id)
+
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail="Room not found",
+        )
+
+    if room.state is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Game has not started",
+        )
+
+    return {
+        "room_id": room.room_id,
+        "current_player": room.state.current_player.id,
+        "phase": room.state.phase.value,
+        "top_card": room.state.top_card.label(),
+        "direction": room.state.direction,
+        "winner_id": room.state.winner_id,
+        "hands": {
+            player.id: [
+                card.label()
+                for card in room.state.hand_of(player.id)
+            ]
+            for player in room.state.players
+        },
+        "draw_pile_count": len(room.state.draw_pile),
+        "discard_pile_count": len(room.state.discard_pile),
+        "pending_draw_count": room.state.pending_draw_count,
+        "pending_question_player_id": room.state.pending_question_player_id,
+        "pending_skip_player_id": room.state.pending_skip_player_id,
+        "active_suit": (
+            room.state.active_suit.value
+            if room.state.active_suit
+            else None
+        ),
+    }
+    
 @router.post("/rooms/{room_id}/play")
 def play_card(
     room_id: str,
@@ -210,6 +258,101 @@ def play_card(
             status_code=400,
             detail=f"Invalid card: {exc}",
         )
+
+    except IllegalMove as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
+
+    return {
+        "success": True,
+        "event_count": len(events),
+        "events": [
+            {
+                "type": event.type.value,
+                "payload": event.payload,
+            }
+            for event in events
+        ],
+    }
+    
+    
+@router.post("/rooms/{room_id}/draw")
+def draw_card(
+    room_id: str,
+    payload: DrawRequest,
+):
+
+    try:
+        room = room_manager.get_room(room_id)
+
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail="Room not found",
+        )
+
+    if room.state is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Game has not started",
+        )
+
+    try:
+        action = DrawAction(
+            player_id=payload.player_id,
+            type=ActionType.DRAW,
+        )
+
+        events = room.apply(action)
+
+    except IllegalMove as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
+
+    return {
+        "success": True,
+        "event_count": len(events),
+        "events": [
+            {
+                "type": event.type.value,
+                "payload": event.payload,
+            }
+            for event in events
+        ],
+    }
+    
+@router.post("/rooms/{room_id}/pass")
+def pass_turn(
+    room_id: str,
+    payload: PassRequest,
+):
+
+    try:
+        room = room_manager.get_room(room_id)
+
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail="Room not found",
+        )
+
+    if room.state is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Game has not started",
+        )
+
+    try:
+        action = PassAction(
+            player_id=payload.player_id,
+            type=ActionType.PASS,
+        )
+
+        events = room.apply(action)
 
     except IllegalMove as exc:
         raise HTTPException(
