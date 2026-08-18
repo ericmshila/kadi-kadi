@@ -1,0 +1,82 @@
+"""
+Serialization helpers.
+
+These convert internal Python objects into JSON-safe dictionaries.
+
+Important:
+- Do not expose every player's hand.
+- Each player should only see their own hand.
+- Other players should only expose card counts.
+"""
+
+from __future__ import annotations
+
+from app.game.room import GameRoom
+from app.rules.cards import Card
+
+
+def serialize_card(card: Card) -> dict:
+    return {
+        "rank": card.rank.value,
+        "suit": card.suit.value if card.suit else None,
+        "label": card.label(),
+    }
+
+
+def serialize_room_for_player(
+    room: GameRoom,
+    player_id: str,
+) -> dict:
+
+    base = {
+        "room_id": room.room_id,
+        "started": room.started,
+        "players": [
+            {
+                "id": player.id,
+                "name": player.name,
+            }
+            for player in room.players
+        ],
+    }
+
+    if room.state is None:
+        return {
+            **base,
+            "state": None,
+        }
+
+    state = room.state
+
+    return {
+        **base,
+        "state": {
+            "current_player": state.current_player.id,
+            "phase": state.phase.value,
+            "top_card": serialize_card(state.top_card),
+            "direction": state.direction,
+            "winner_id": state.winner_id,
+            "pending_draw_count": state.pending_draw_count,
+            "pending_question_player_id": state.pending_question_player_id,
+            "pending_skip_player_id": state.pending_skip_player_id,
+            "active_suit": (
+                state.active_suit.value
+                if state.active_suit
+                else None
+            ),
+            "players": [
+                {
+                    "id": player.id,
+                    "name": player.name,
+                    "card_count": len(state.hand_of(player.id)),
+                    "is_current_player": player.id == state.current_player.id,
+                    "is_you": player.id == player_id,
+                }
+                for player in state.players
+            ],
+            "my_hand": [
+                serialize_card(card)
+                for card in state.hand_of(player_id)
+            ],
+        },
+    }

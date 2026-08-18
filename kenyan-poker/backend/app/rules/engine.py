@@ -330,7 +330,7 @@ def _validate_question_response(
 
     card = action.cards[0]
 
-    if _is_ace(card) and rules.ace_counters_punishments:
+    if _is_ace(card) and rules.ace_can_answer_question:
         _validate_declared_suit_for_ace(action, rules)
         return
 
@@ -371,6 +371,9 @@ def _validate_skip_response(
     action: PlayCardsAction,
     rules: RuleConfig,
 ) -> None:
+
+    if not rules.skip_can_be_countered:
+        raise IllegalMove("Skip cannot be countered under the current rules.")
 
     card = action.cards[0]
 
@@ -948,6 +951,20 @@ def _validate_finish_rules(
 
     if remaining_cards != 0:
         return
+
+    if _is_ace(last_card):
+        if rules.ace_can_finish:
+            return
+        raise IllegalMove(
+            f"Player {player_id} cannot finish on {last_card.label()}."
+        )
+
+    if _is_joker(last_card):
+        if rules.joker_can_finish:
+            return
+        raise IllegalMove(
+            f"Player {player_id} cannot finish on {last_card.label()}."
+        )
 
     if last_card.rank not in rules.finishable_ranks:
         raise IllegalMove(

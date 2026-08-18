@@ -70,8 +70,12 @@ def get_room(room_id: str):
         "room_id": room.room_id,
         "player_count": len(room.players),
         "started": room.started,
+        "players": [
+            {"id": player.id, "name": player.name}
+            for player in room.players
+        ],
     }
-    
+
 @router.post("/rooms/{room_id}/join")
 def join_room(
     room_id: str,
