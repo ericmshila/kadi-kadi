@@ -10,10 +10,15 @@ class RuleConfig:
 
     initial_hand_size: int = 4
 
+    # Joker is a punishment card, same family as 2s/3s: playing one
+    # forces the next player to draw this many, or counter with
+    # another draw card. Stacks with 2s/3s and other Jokers just like
+    # they stack with each other (see engine._apply_draw_card_effect).
     draw_ranks: dict[Rank, int] = field(
         default_factory=lambda: {
             Rank.TWO: 2,
             Rank.THREE: 3,
+            Rank.JOKER: 5,
         }
     )
 
@@ -59,8 +64,10 @@ class RuleConfig:
     ace_can_answer_question: bool = False
     ace_can_finish: bool = False
 
-    joker_is_wild: bool = True
-    joker_requires_declared_suit: bool = True
+    # Joker is always playable regardless of the top card (no suit or
+    # rank match required), like Ace — but unlike Ace, it doesn't
+    # declare a suit; it triggers a draw-pressure punishment instead
+    # (see draw_ranks above).
     joker_can_answer_question: bool = False
     joker_can_finish: bool = False
 

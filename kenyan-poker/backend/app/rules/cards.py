@@ -26,6 +26,28 @@ class Suit(str, Enum):
     CLUBS = "clubs"
 
 
+class JokerColor(str, Enum):
+    """
+    A standard deck's two Jokers are printed in different colours.
+
+    Kadi uses this to distinguish them for the "counter a Joker's
+    draw pressure with a matching-colour punishment card" rule (see
+    RuleConfig.draw_ranks / engine._card_color) — normal cards never
+    set this; only Rank.JOKER cards do.
+    """
+
+    RED = "red"
+    BLACK = "black"
+
+
+_SUIT_COLORS: dict[Suit, str] = {
+    Suit.HEARTS: "red",
+    Suit.DIAMONDS: "red",
+    Suit.SPADES: "black",
+    Suit.CLUBS: "black",
+}
+
+
 class Rank(str, Enum):
     TWO = "2"
     THREE = "3"
@@ -50,14 +72,36 @@ class Card:
 
     Jokers do not have a suit.
     Normal cards always have a suit.
+
+    Jokers do carry a colour instead (``joker_color``), used only to
+    check the "matching colour punishment card" counter rule. Normal
+    cards leave this unset — use ``.color`` to get a card's colour
+    regardless of whether it's a Joker or a suited card.
     """
 
     rank: Rank
     suit: Optional[Suit] = None
+    joker_color: Optional[JokerColor] = None
 
     @property
     def is_joker(self) -> bool:
         return self.rank == Rank.JOKER
+
+    @property
+    def color(self) -> Optional[str]:
+        """
+        "red" or "black", for a suited card or a coloured Joker.
+        None for a Joker with no assigned colour (shouldn't normally
+        happen once dealt from ``build_deck``).
+        """
+
+        if self.is_joker:
+            return self.joker_color.value if self.joker_color else None
+
+        if self.suit is None:
+            return None
+
+        return _SUIT_COLORS[self.suit]
 
     @property
     def is_number_card(self) -> bool:
@@ -95,7 +139,10 @@ def build_deck(
 
     Args:
         include_jokers:
-            Number of jokers to include. Default is 2.
+            Number of jokers to include (0-2). A real deck's two
+            Jokers are printed in different colours, which Kadi uses
+            for its "matching colour" counter rule, so the first
+            Joker added is black and the second is red.
 
     Returns:
         A list of Card objects.
@@ -110,8 +157,11 @@ def build_deck(
 
             deck.append(Card(rank=rank, suit=suit))
 
-    for _ in range(include_jokers):
-        deck.append(Card(rank=Rank.JOKER, suit=None))
+    joker_colors = (JokerColor.BLACK, JokerColor.RED)
+
+    for i in range(include_jokers):
+        color = joker_colors[i] if i < len(joker_colors) else None
+        deck.append(Card(rank=Rank.JOKER, suit=None, joker_color=color))
 
     return deck
 

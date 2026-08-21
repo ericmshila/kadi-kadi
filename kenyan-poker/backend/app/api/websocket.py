@@ -30,7 +30,7 @@ from app.rules.actions import (
     PlayerAction,
     SayNikoKadiAction,
 )
-from app.rules.cards import Card, Rank, Suit
+from app.rules.cards import Card, JokerColor, Rank, Suit
 from app.rules.engine import IllegalMove
 from app.rules.events import GameEvent
 
@@ -130,6 +130,24 @@ async def _handle_message(
         )
         return
 
+    if message.get("type") == "restart":
+        # Not a rules-engine "move" on the current state (it replaces
+        # the state outright), so it's handled here rather than going
+        # through _parse_action/room.apply like everything else. Any
+        # player still connected can trigger it once the round is over.
+        try:
+            events = room.restart()
+        except ValueError as exc:
+            await connection_manager.send_to_player(
+                room_id,
+                player_id,
+                {"type": "error", "detail": str(exc)},
+            )
+            return
+
+        await _broadcast_state(room_id, events)
+        return
+
     try:
         action = _parse_action(player_id, message)
     except (ValueError, KeyError, TypeError) as exc:
@@ -164,6 +182,9 @@ def _parse_action(
 
     {"type": "play_cards", "cards": [{"rank": "5", "suit": "hearts"}],
      "declared_suit": null, "declare_niko_kadi": false}
+    {"type": "play_cards", "cards": [{"rank": "JOKER", "suit": null,
+     "joker_color": "black"}], "declared_suit": null,
+     "declare_niko_kadi": false}
     {"type": "draw"}
     {"type": "pass"}
     {"type": "say_niko_kadi"}
@@ -183,6 +204,11 @@ def _parse_action(
                 suit=(
                     Suit(card["suit"])
                     if card.get("suit") is not None
+                    else None
+                ),
+                joker_color=(
+                    JokerColor(card["joker_color"])
+                    if card.get("joker_color") is not None
                     else None
                 ),
             )

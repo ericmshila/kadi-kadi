@@ -329,7 +329,9 @@ def _validate_normal_turn_play(
         return
 
     if _is_joker(card):
-        _validate_declared_suit_for_joker(action, rules)
+        # Always playable, like Ace — but no suit to declare; it
+        # opens a draw-pressure punishment instead (see
+        # _apply_card_effects / rules.draw_ranks).
         return
 
     if not _matches_required_suit_or_rank(state, card):
@@ -351,7 +353,6 @@ def _validate_question_response(
         return
 
     if _is_joker(card) and rules.joker_can_answer_question:
-        _validate_declared_suit_for_joker(action, rules)
         return
 
     if card.rank not in rules.question_answer_ranks:
@@ -379,7 +380,22 @@ def _validate_draw_response(
         raise IllegalMove("Draw stacking is disabled. Player must draw.")
 
     if card.rank not in rules.draw_ranks:
-        raise IllegalMove("Only another draw card or Ace can respond to draw pressure.")
+        raise IllegalMove(
+            "Only another draw card, Joker, or Ace can respond to draw pressure."
+        )
+
+    if _is_joker(state.top_card) and not _is_joker(card):
+        # A plain 2/3 can only counter an active Joker if it matches
+        # the Joker's colour (another Joker or an Ace always works,
+        # handled above/below).
+        required_color = _card_color(state.top_card)
+
+        for played in action.cards:
+            if _card_color(played) != required_color:
+                raise IllegalMove(
+                    f"Only a {required_color} card (or another Joker, or an "
+                    "Ace) can counter this Joker's draw pressure."
+                )
 
 
 def _validate_skip_response(
@@ -408,15 +424,6 @@ def _validate_declared_suit_for_ace(
 
     if rules.ace_requires_declared_suit and action.declared_suit is None:
         raise IllegalMove("Playing Ace requires declaring the next suit.")
-
-
-def _validate_declared_suit_for_joker(
-    action: PlayCardsAction,
-    rules: RuleConfig,
-) -> None:
-
-    if rules.joker_requires_declared_suit and action.declared_suit is None:
-        raise IllegalMove("Playing Joker requires declaring the next suit.")
 
 
 # ---------------------------------------------------------------------
@@ -512,7 +519,7 @@ def _commit_play_cards(
 
     return _apply_card_effects(
         state=new_state,
-        played_card=first_card,
+        played_cards=cards,
         action=action,
         rules=rules,
         events=events,
@@ -526,31 +533,46 @@ def _commit_play_cards(
 
 def _apply_card_effects(
     state: GameState,
-    played_card: Card,
+    played_cards: tuple[Card, ...],
     action: PlayCardsAction,
     rules: RuleConfig,
     events: list[GameEvent],
 ) -> tuple[GameState, list[GameEvent]]:
+    """
+    Dispatches on the rank shared by every card in ``played_cards``
+    (multi-card plays are same-rank only, enforced upstream in
+    ``_validate_play_action_shape``). Effect-bearing card types apply
+    their effect once PER CARD played, not once for the whole move:
+    two 2s stack +4 draw pressure, two Jacks skip two players ahead,
+    two Kings reverse direction twice (net no-op), etc. Question cards
+    are the one exception — asking is a single yes/no obligation
+    regardless of how many question cards were dropped together.
+
+    Joker is a punishment card, not a wild suit-changer (see
+    RuleConfig.draw_ranks), so it falls into the same draw_ranks
+    branch as 2s/3s below and stacks the same way. Ace is the only
+    card that behaves differently as a punishment response — it
+    clears the pending draw outright instead of adding to it — so it
+    keeps its own dedicated branch.
+    """
 
     player_id = action.player_id
+    played_card = played_cards[0]
 
     if _is_ace(played_card):
         return _apply_ace_effect(state, action, events)
 
-    if _is_joker(played_card):
-        return _apply_joker_effect(state, action, events)
-
     if played_card.rank in rules.draw_ranks:
-        return _apply_draw_card_effect(state, played_card, rules, events)
+        return _apply_draw_card_effect(state, played_cards, rules, events)
 
     if played_card.rank in rules.question_ranks:
-        return _apply_question_effect(state, played_card, events)
+        return _apply_question_effect(state, played_cards, events)
 
     if played_card.rank in rules.skip_ranks:
-        return _apply_skip_effect(state, played_card, events)
+        return _apply_skip_effect(state, played_cards, events)
 
     if played_card.rank in rules.reverse_ranks:
-        return _apply_reverse_effect(state, played_card, events)
+        return _apply_reverse_effect(state, played_cards, events)
 
     if state.phase == Phase.AWAITING_ANSWER:
         events.append(
@@ -625,43 +647,14 @@ def _apply_ace_effect(
     return new_state, events
 
 
-def _apply_joker_effect(
-    state: GameState,
-    action: PlayCardsAction,
-    events: list[GameEvent],
-) -> tuple[GameState, list[GameEvent]]:
-
-    player_id = action.player_id
-
-    events.append(
-        GameEvent(
-            type=EventType.SUIT_DECLARED,
-            payload={
-                "player_id": player_id,
-                "suit": action.declared_suit.value if action.declared_suit else None,
-            },
-        )
-    )
-
-    new_state = state.replace(
-        phase=Phase.AWAITING_MOVE,
-        active_suit=action.declared_suit,
-    )
-
-    new_state, turn_events = _advance_turn(new_state, steps=1)
-    events.extend(turn_events)
-
-    return new_state, events
-
-
 def _apply_draw_card_effect(
     state: GameState,
-    played_card: Card,
+    played_cards: tuple[Card, ...],
     rules: RuleConfig,
     events: list[GameEvent],
 ) -> tuple[GameState, list[GameEvent]]:
 
-    added = rules.draw_ranks[played_card.rank]
+    added = sum(rules.draw_ranks[card.rank] for card in played_cards)
     pending_total = state.pending_draw_count + added
 
     new_state = state.replace(
@@ -691,7 +684,7 @@ def _apply_draw_card_effect(
 
 def _apply_question_effect(
     state: GameState,
-    played_card: Card,
+    played_cards: tuple[Card, ...],
     events: list[GameEvent],
 ) -> tuple[GameState, list[GameEvent]]:
     """
@@ -700,6 +693,9 @@ def _apply_question_effect(
 
     They stay the current player and must follow up with a valid
     answer card (or draw, if they have none) before their turn ends.
+    Playing several question cards at once doesn't multiply this
+    obligation — one valid answer still resolves it, however many
+    question cards were dropped together.
     """
 
     asking_player = state.current_player
@@ -714,8 +710,9 @@ def _apply_question_effect(
         GameEvent(
             type=EventType.QUESTION_ASKED,
             payload={
-                "question_card": played_card.label(),
+                "question_card": played_cards[0].label(),
                 "target_player_id": asking_player.id,
+                "card_count": len(played_cards),
             },
         )
     )
@@ -725,11 +722,19 @@ def _apply_question_effect(
 
 def _apply_skip_effect(
     state: GameState,
-    played_card: Card,
+    played_cards: tuple[Card, ...],
     events: list[GameEvent],
 ) -> tuple[GameState, list[GameEvent]]:
+    """
+    Each Jack skips one more player: playing two Jacks together
+    reaches two players ahead instead of one, and turn advancement
+    covers the same distance so the reached player is the one left
+    to counter or accept the (now doubled) skip.
+    """
 
-    next_index = _calculate_next_index(state, steps=1)
+    skip_count = len(played_cards)
+
+    next_index = _calculate_next_index(state, steps=skip_count)
     next_player = state.players[next_index]
 
     new_state = state.replace(
@@ -742,13 +747,14 @@ def _apply_skip_effect(
         GameEvent(
             type=EventType.SKIP_STARTED,
             payload={
-                "skip_card": played_card.label(),
+                "skip_card": played_cards[0].label(),
                 "target_player_id": next_player.id,
+                "skip_count": skip_count,
             },
         )
     )
 
-    new_state, turn_events = _advance_turn(new_state, steps=1)
+    new_state, turn_events = _advance_turn(new_state, steps=skip_count)
     events.extend(turn_events)
 
     return new_state, events
@@ -756,11 +762,17 @@ def _apply_skip_effect(
 
 def _apply_reverse_effect(
     state: GameState,
-    played_card: Card,
+    played_cards: tuple[Card, ...],
     events: list[GameEvent],
 ) -> tuple[GameState, list[GameEvent]]:
+    """
+    Each King flips direction once, so an even number played together
+    cancels out (net no-op) and an odd number nets a single reverse —
+    the literal result of "stacking" a toggle.
+    """
 
-    new_direction = state.direction * -1
+    flips = len(played_cards) % 2
+    new_direction = state.direction * (-1 if flips else 1)
 
     new_state = state.replace(
         direction=new_direction,
@@ -1008,6 +1020,10 @@ def _is_ace(card: Card) -> bool:
 
 def _is_joker(card: Card) -> bool:
     return card.rank == Rank.JOKER
+
+
+def _card_color(card: Card) -> Optional[str]:
+    return card.color
 
 
 def _is_opening_special_card(

@@ -19,6 +19,7 @@ def serialize_card(card: Card) -> dict:
     return {
         "rank": card.rank.value,
         "suit": card.suit.value if card.suit else None,
+        "joker_color": card.joker_color.value if card.joker_color else None,
         "label": card.label(),
     }
 
