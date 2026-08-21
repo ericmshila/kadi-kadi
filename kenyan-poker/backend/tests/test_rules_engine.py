@@ -39,6 +39,7 @@ def make_state(
     active_suit: Suit | None = None,
     pending_question_player_id: str | None = None,
     pending_skip_player_id: str | None = None,
+    eliminated_player_ids: frozenset[str] | None = None,
 ) -> GameState:
     players = make_players(player_count)
 
@@ -70,6 +71,7 @@ def make_state(
         active_suit=active_suit,
         pending_question_player_id=pending_question_player_id,
         pending_skip_player_id=pending_skip_player_id,
+        eliminated_player_ids=eliminated_player_ids or frozenset(),
     )
 
 
@@ -242,9 +244,11 @@ def test_question_card_enters_awaiting_answer_phase():
     )
     new_state, events = apply_move(state, action, rules)
 
+    # The player who asks the question must answer it themselves — the
+    # turn stays with them, it does not pass to the next player.
     assert new_state.phase == Phase.AWAITING_ANSWER
-    assert new_state.current_player.id == "b"
-    assert new_state.pending_question_player_id == "b"
+    assert new_state.current_player.id == "a"
+    assert new_state.pending_question_player_id == "a"
     assert any(event.type == EventType.QUESTION_ASKED for event in events)
 
 

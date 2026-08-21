@@ -212,6 +212,8 @@ def _apply_draw(
     if state.phase == Phase.AWAITING_SKIP_RESPONSE:
         raise IllegalMove("Player must pass or counter the skip.")
 
+    is_punishment_draw = state.phase == Phase.AWAITING_DRAW_RESPONSE
+
     if state.phase == Phase.AWAITING_DRAW_RESPONSE:
         draw_count = state.pending_draw_count
 
@@ -236,6 +238,20 @@ def _apply_draw(
         pending_question_player_id=None,
         pending_skip_player_id=None,
     )
+
+    if (
+        is_punishment_draw
+        and rules.forfeit_hand_size is not None
+        and len(new_state.hand_of(action.player_id)) >= rules.forfeit_hand_size
+    ):
+        new_state, forfeit_events = _forfeit_player(
+            state=new_state,
+            player_id=action.player_id,
+        )
+        events.extend(forfeit_events)
+
+        if new_state.phase == Phase.FINISHED:
+            return new_state, events
 
     new_state, turn_events = _advance_turn(new_state, steps=1)
     events.extend(turn_events)
@@ -678,13 +694,19 @@ def _apply_question_effect(
     played_card: Card,
     events: list[GameEvent],
 ) -> tuple[GameState, list[GameEvent]]:
+    """
+    The player who plays a question card (8 or Q) must immediately
+    answer it themselves — the turn does NOT pass to the next player.
 
-    next_index = _calculate_next_index(state, steps=1)
-    next_player = state.players[next_index]
+    They stay the current player and must follow up with a valid
+    answer card (or draw, if they have none) before their turn ends.
+    """
+
+    asking_player = state.current_player
 
     new_state = state.replace(
         phase=Phase.AWAITING_ANSWER,
-        pending_question_player_id=next_player.id,
+        pending_question_player_id=asking_player.id,
         active_suit=None,
     )
 
@@ -693,13 +715,10 @@ def _apply_question_effect(
             type=EventType.QUESTION_ASKED,
             payload={
                 "question_card": played_card.label(),
-                "target_player_id": next_player.id,
+                "target_player_id": asking_player.id,
             },
         )
     )
-
-    new_state, turn_events = _advance_turn(new_state, steps=1)
-    events.extend(turn_events)
 
     return new_state, events
 
@@ -843,6 +862,76 @@ def _reshuffle_discard_into_draw_pile(
 
 
 # ---------------------------------------------------------------------
+# Forfeit helpers
+# ---------------------------------------------------------------------
+
+
+def _forfeit_player(
+    state: GameState,
+    player_id: str,
+) -> tuple[GameState, list[GameEvent]]:
+    """
+    Eliminate a player who was punished up to the forfeit hand size
+    with no way to avoid it.
+
+    Their hand is shuffled back into the draw pile so those cards
+    stay in circulation for the remaining players. If only one player
+    is left standing after this, the game ends and they win.
+    """
+
+    hand_size = len(state.hand_of(player_id))
+
+    returned_cards = list(state.draw_pile) + list(state.hand_of(player_id))
+    random.shuffle(returned_cards)
+
+    new_hands = dict(state.hands)
+    new_hands[player_id] = tuple()
+
+    eliminated = set(state.eliminated_player_ids)
+    eliminated.add(player_id)
+
+    new_state = state.replace(
+        hands=new_hands,
+        draw_pile=tuple(returned_cards),
+        eliminated_player_ids=frozenset(eliminated),
+    )
+
+    events = [
+        GameEvent(
+            type=EventType.PLAYER_ELIMINATED,
+            payload={"player_id": player_id, "hand_size": hand_size},
+        )
+    ]
+
+    if new_state.active_player_count == 1:
+        winner_id = next(
+            player.id
+            for player in new_state.players
+            if player.id not in new_state.eliminated_player_ids
+        )
+
+        new_state = new_state.replace(
+            phase=Phase.FINISHED,
+            winner_id=winner_id,
+        )
+
+        events.extend(
+            [
+                GameEvent(
+                    type=EventType.PLAYER_WON,
+                    payload={"player_id": winner_id},
+                ),
+                GameEvent(
+                    type=EventType.GAME_FINISHED,
+                    payload={"winner_id": winner_id},
+                ),
+            ]
+        )
+
+    return new_state, events
+
+
+# ---------------------------------------------------------------------
 # Turn helpers
 # ---------------------------------------------------------------------
 
@@ -868,10 +957,24 @@ def _calculate_next_index(
     state: GameState,
     steps: int,
 ) -> int:
+    """
+    Find the seat `steps` hops away in the current direction,
+    skipping over eliminated players' seats.
+    """
 
-    return (
-        state.current_player_index + steps * state.direction
-    ) % state.player_count
+    if state.active_player_count <= 1:
+        return state.current_player_index
+
+    index = state.current_player_index
+    hops_remaining = steps
+
+    while hops_remaining > 0:
+        index = (index + state.direction) % state.player_count
+
+        if state.players[index].id not in state.eliminated_player_ids:
+            hops_remaining -= 1
+
+    return index
 
 
 # ---------------------------------------------------------------------

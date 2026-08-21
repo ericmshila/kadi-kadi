@@ -96,6 +96,12 @@ class EventType(str, Enum):
 
     NIKO_KADI_PENALTY = "niko_kadi_penalty"
 
+    # ---------------------------------------------------------
+    # Forfeits
+    # ---------------------------------------------------------
+
+    PLAYER_ELIMINATED = "player_eliminated"
+
 
 @dataclass(frozen=True)
 class GameEvent:

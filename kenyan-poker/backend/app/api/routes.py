@@ -91,16 +91,29 @@ def join_room(
             detail="Room not found",
         )
 
-    room.add_player(
-        Player(
-            id=payload.player_id,
-            name=payload.player_name,
-        )
+    already_seated = any(
+        player.id == payload.player_id for player in room.players
     )
+
+    if not already_seated:
+        try:
+            room.add_player(
+                Player(
+                    id=payload.player_id,
+                    name=payload.player_name,
+                )
+            )
+
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=str(exc),
+            )
 
     return {
         "room_id": room.room_id,
         "player_count": len(room.players),
+        "already_seated": already_seated,
     }
     
 @router.post(
@@ -163,11 +176,12 @@ def get_game_state(room_id: str):
                 "card_count": len(
                     room.state.hand_of(player.id)
                 ),
+                "is_eliminated": player.id in room.state.eliminated_player_ids,
             }
             for player in room.state.players
         ],
     }
-    
+
 @router.get("/rooms/{room_id}/debug")
 def debug_room(room_id: str):
 
@@ -210,8 +224,9 @@ def debug_room(room_id: str):
             if room.state.active_suit
             else None
         ),
+        "eliminated_player_ids": sorted(room.state.eliminated_player_ids),
     }
-    
+
 @router.post("/rooms/{room_id}/play")
 def play_card(
     room_id: str,

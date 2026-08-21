@@ -114,6 +114,18 @@ class GameState:
     )
 
     # ---------------------------------------------------------
+    # Forfeits
+    # ---------------------------------------------------------
+
+    # Players who were eliminated for being punished up to the
+    # forfeit hand size with no way to avoid it. They keep their seat
+    # in `players` (for history/UI) but are skipped in turn order and
+    # hold an empty hand.
+    eliminated_player_ids: frozenset[str] = field(
+        default_factory=frozenset
+    )
+
+    # ---------------------------------------------------------
     # Winner
     # ---------------------------------------------------------
 
@@ -130,6 +142,10 @@ class GameState:
     @property
     def player_count(self) -> int:
         return len(self.players)
+
+    @property
+    def active_player_count(self) -> int:
+        return len(self.players) - len(self.eliminated_player_ids)
 
     def hand_of(self, player_id: str) -> tuple[Card, ...]:
         return self.hands[player_id]

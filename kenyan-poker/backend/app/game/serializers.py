@@ -71,6 +71,7 @@ def serialize_room_for_player(
                     "card_count": len(state.hand_of(player.id)),
                     "is_current_player": player.id == state.current_player.id,
                     "is_you": player.id == player_id,
+                    "is_eliminated": player.id in state.eliminated_player_ids,
                 }
                 for player in state.players
             ],

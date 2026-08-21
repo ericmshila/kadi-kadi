@@ -78,3 +78,14 @@ class RuleConfig:
             Rank.TEN,
         }
     )
+
+    # ---------------------------------------------------------
+    # Forfeit
+    # ---------------------------------------------------------
+
+    # A player who is forced to draw an unavoidable punishment stack
+    # (a 2/3 draw chain they had no counter or restack for) and ends
+    # up holding this many cards or more is eliminated from the game.
+    # Their hand is shuffled back into the draw pile. Set to None to
+    # disable this rule entirely.
+    forfeit_hand_size: int | None = 10
