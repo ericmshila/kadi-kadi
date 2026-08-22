@@ -84,7 +84,8 @@ export type ServerMessageType =
   | "state"
   | "error"
   | "player_connected"
-  | "player_disconnected";
+  | "player_disconnected"
+  | "chat";
 
 export interface ServerMessage {
   type: ServerMessageType;
@@ -92,4 +93,16 @@ export interface ServerMessage {
   events?: GameEventView[];
   detail?: string;
   player_id?: string;
+  name?: string;
+  text?: string;
+}
+
+// The hook-local, accumulated view of a chat message — `id` is
+// generated client-side (the server doesn't assign one) purely so
+// React has a stable list key.
+export interface ChatMessageView {
+  id: string;
+  playerId: string;
+  name: string;
+  text: string;
 }

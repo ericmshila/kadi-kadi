@@ -1,0 +1,7 @@
+feat: add room chat over the existing websocket
+
+Broadcast a plain-text chat message to everyone connected in a room
+when one player sends one, handled entirely at the websocket layer
+(no rules-engine or GameState involvement, no persistence, no
+encryption yet). Adds a chat toggle with an unread-message badge and
+a slide-up chat panel on the frontend.

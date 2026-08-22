@@ -55,6 +55,8 @@ function describe(event: GameEventView, players: PlayerView[]): string {
       return `${nameOf(players, payload.player_id)} won the game!`;
     case "player_eliminated":
       return `${nameOf(players, payload.player_id)} was eliminated (reached ${payload.hand_size} cards)`;
+    case "player_left":
+      return `${nameOf(players, payload.player_id)} left the game`;
     case "game_started":
       return "Game started";
     case "game_finished":

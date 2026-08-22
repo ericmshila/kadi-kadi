@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { API_BASE_URL } from "./api";
-import type { GameEventView, RoomView, ServerMessage } from "./types";
+import type { ChatMessageView, GameEventView, RoomView, ServerMessage } from "./types";
+
+// Keeps memory bounded on a long-running session — old messages
+// simply scroll out rather than the array growing forever.
+const MAX_CHAT_HISTORY = 200;
 
 // Derived from the same API_BASE_URL used for REST calls (see
 // api.ts), so the WebSocket automatically follows whatever host —
@@ -17,6 +21,7 @@ interface UseGameSocketResult {
   status: ConnectionStatus;
   room: RoomView | null;
   lastEvents: GameEventView[];
+  chatMessages: ChatMessageView[];
   error: string | null;
   send: (payload: Record<string, unknown>) => void;
 }
@@ -34,8 +39,13 @@ export function useGameSocket(
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [room, setRoom] = useState<RoomView | null>(null);
   const [lastEvents, setLastEvents] = useState<GameEventView[]>([]);
+  const [chatMessages, setChatMessages] = useState<ChatMessageView[]>([]);
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  // Client-generated list key — the server doesn't assign chat
+  // message ids, and a Set-free counter is simpler than pulling in
+  // crypto.randomUUID() just for this.
+  const chatIdRef = useRef(0);
 
   useEffect(() => {
     if (!roomId || !playerId) {
@@ -71,6 +81,28 @@ export function useGameSocket(
         setError(null);
       } else if (message.type === "error") {
         setError(message.detail ?? "Unknown error");
+      } else if (
+        message.type === "chat" &&
+        message.player_id &&
+        message.name &&
+        message.text
+      ) {
+        chatIdRef.current += 1;
+
+        const playerId = message.player_id;
+        const name = message.name;
+        const text = message.text;
+
+        setChatMessages((prev) => {
+          const next = [
+            ...prev,
+            { id: String(chatIdRef.current), playerId, name, text },
+          ];
+
+          return next.length > MAX_CHAT_HISTORY
+            ? next.slice(next.length - MAX_CHAT_HISTORY)
+            : next;
+        });
       }
     };
 
@@ -89,5 +121,5 @@ export function useGameSocket(
     }
   }, []);
 
-  return { status, room, lastEvents, error, send };
+  return { status, room, lastEvents, chatMessages, error, send };
 }
