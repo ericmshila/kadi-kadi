@@ -1,7 +1,27 @@
-feat: add room chat over the existing websocket
+feat: delay and soften the legal-card hint so a hand still requires thinking
 
-Broadcast a plain-text chat message to everyone connected in a room
-when one player sends one, handled entirely at the websocket layer
-(no rules-engine or GameState involvement, no persistence, no
-encryption yet). Adds a chat toggle with an unread-message badge and
-a slide-up chat panel on the frontend.
+The legal-card preview used to dim every unplayable card the instant
+it became your turn — which handed over the whole hand's answer at a
+glance and made a solo game feel like watching two AIs play each
+other. Two changes:
+
+1. Dimming is gone entirely. A card that isn't currently playable now
+   renders exactly like any other card — no opacity/saturation
+   penalty. PlayingCard's `legal` prop is effectively positive-only
+   now (`true` glows, anything else is plain); the old
+   `.illegal-play` styling and CSS are removed.
+
+2. The remaining hint — a subtle, gently pulsing gold glow on
+   playable cards — is withheld for the first 3 seconds of every new
+   decision (Table.tsx's new `hintsRevealed` timer), giving the
+   player a moment to actually look at their hand and think before
+   any assist appears. The timer restarts on a fresh turn, a
+   mid-turn phase change (e.g. you play a question card and
+   immediately owe an answer), or your hand size changing (you just
+   drew) — and is correctly gated behind the shuffle-overlay
+   animation too, so the countdown doesn't secretly burn down while
+   the hand is still hidden behind it.
+
+Verified: tsc/build/lint clean, and a live Playwright pass confirming
+no glow and no dimming at 0s or 1.5s into a turn, a glow appearing by
+~3.5s, and zero illegal-play elements ever rendered at any point.

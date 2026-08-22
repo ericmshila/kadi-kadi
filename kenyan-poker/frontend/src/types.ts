@@ -47,6 +47,7 @@ export interface PlayerView {
   is_current_player: boolean;
   is_you: boolean;
   is_eliminated: boolean;
+  has_declared_niko_kadi: boolean;
 }
 
 export interface RoomPlayerSummary {
@@ -64,6 +65,13 @@ export interface GameStateView {
   pending_question_player_id: string | null;
   pending_skip_player_id: string | null;
   active_suit: Suit | null;
+  // What a normal play (or question/draw/skip response) must match
+  // right now — see backend GameState.required_suit. null only when
+  // the discard pile is nothing but colourless Jokers (shouldn't
+  // happen in practice, since the very first discard is forced to be
+  // a plain card).
+  required_suit: Suit | null;
+  draw_pile_count: number;
   players: PlayerView[];
   my_hand: CardView[];
 }
@@ -105,4 +113,16 @@ export interface ChatMessageView {
   playerId: string;
   name: string;
   text: string;
+}
+
+// The hook-local, accumulated Game Log — unlike `lastEvents` (which
+// the socket hook replaces wholesale with just the latest action's
+// events), this grows across the whole session so the log panel
+// keeps a running history instead of flickering to whatever just
+// happened. `id` and `timestamp` are both generated client-side on
+// arrival — the server doesn't stamp events with wall-clock time.
+export interface GameLogEntryView {
+  id: string;
+  event: GameEventView;
+  timestamp: number;
 }

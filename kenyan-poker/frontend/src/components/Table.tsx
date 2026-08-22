@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { useGameSocket } from "../useGameSocket";
 import { PlayingCard } from "./PlayingCard";
 import { SuitPicker } from "./SuitPicker";
@@ -7,7 +8,8 @@ import { ChatPanel } from "./ChatPanel";
 import { EventLog } from "./EventLog";
 import { ShuffleOverlay } from "./ShuffleOverlay";
 import * as sound from "../sound";
-import type { CardView, Phase, Suit } from "../types";
+import { isCardLegal } from "../legality";
+import type { CardView, GameStateView, Phase, Suit } from "../types";
 
 interface TableProps {
   roomId: string;
@@ -20,12 +22,47 @@ interface TableProps {
 // immediately with no suit picker.
 const WILD_RANKS = new Set(["A"]);
 
+// Who's next in turn order, skipping eliminated seats — mirrors
+// engine._calculate_next_index. Only meaningful (and only called)
+// during "awaiting_move": once a question/skip/draw obligation is
+// pending, current_player IS the one under pressure, and who comes
+// after them depends on how that resolves rather than just "the next
+// seat over", so this would be a guess rather than a preview there.
+function computeNextUpPlayerId(state: GameStateView): string | null {
+  const total = state.players.length;
+  const activeCount = state.players.filter((p) => !p.is_eliminated).length;
+
+  if (activeCount <= 1) {
+    return null;
+  }
+
+  const currentIndex = state.players.findIndex(
+    (p) => p.id === state.current_player,
+  );
+
+  if (currentIndex === -1) {
+    return null;
+  }
+
+  let index = currentIndex;
+
+  for (let hops = 0; hops < total; hops += 1) {
+    index = (index + state.direction + total) % total;
+
+    if (!state.players[index].is_eliminated) {
+      return state.players[index].id;
+    }
+  }
+
+  return null;
+}
+
 function initialOf(name: string): string {
   return name.trim().charAt(0).toUpperCase() || "?";
 }
 
 export function Table({ roomId, playerId, onLeave }: TableProps) {
-  const { status, room, lastEvents, chatMessages, error, send } =
+  const { status, room, lastEvents, eventHistory, chatMessages, error, send } =
     useGameSocket(roomId, playerId);
   // Indices into state.my_hand. Multi-card plays require same-rank
   // cards, so selecting a card of a different rank starts a fresh
@@ -58,6 +95,23 @@ export function Table({ roomId, playerId, onLeave }: TableProps) {
   // and rejoining a fresh game remounts Table entirely, which is
   // exactly when it should play again.
   const [showShuffle, setShowShuffle] = useState(true);
+  // Bumped once per card_played batch — used purely as a React `key`
+  // on the discard pile's top card so it remounts (and its landing
+  // animation replays) every time, rather than tracking a separate
+  // "is animating" boolean.
+  const [landingPulse, setLandingPulse] = useState(0);
+  // Same remount-key trick for the draw-pressure counter, plus a
+  // magnitude so a bigger jump (e.g. a stacked Joker) visibly pulses
+  // harder than a lone 2.
+  const [pressurePulse, setPressurePulse] = useState(0);
+  const [pressureDelta, setPressureDelta] = useState(1);
+  const prevPendingDrawRef = useRef(0);
+  // Whether the legal-card glow (see legality.ts) is allowed to show
+  // yet. Deliberately withheld for a few seconds at the start of
+  // every new decision, so the UI doesn't hand over the answer the
+  // instant it becomes your turn — a moment to actually look at your
+  // hand and think, not just react to what's lit up.
+  const [hintsRevealed, setHintsRevealed] = useState(false);
 
   // Core-moment sound effects, driven straight off the same event
   // batch the EventLog renders — see sound.ts for what's covered
@@ -83,6 +137,7 @@ export function Table({ roomId, playerId, onLeave }: TableProps) {
       switch (event.type) {
         case "card_played":
           sound.playCardPlayed();
+          setLandingPulse((prev) => prev + 1);
           break;
 
         case "cards_drawn":
@@ -127,6 +182,53 @@ export function Table({ roomId, playerId, onLeave }: TableProps) {
       setUnreadChatCount(chatMessages.length - lastSeenChatCount.current);
     }
   }, [chatMessages.length, chatOpen]);
+
+  // Fires whenever draw pressure actually goes UP (a 2/3/Joker got
+  // stacked on) — never on a decrease (someone drew/countered), since
+  // this is meant to telegraph a punishment growing, not every change.
+  // Declared unconditionally (before the early returns below) per the
+  // Rules of Hooks; `state` can still be null here on first render.
+  useEffect(() => {
+    const next = room?.state?.pending_draw_count ?? 0;
+    const prev = prevPendingDrawRef.current;
+    if (next > prev) {
+      setPressureDelta(Math.max(1, Math.min(next - prev, 6)));
+      setPressurePulse((count) => count + 1);
+    }
+    prevPendingDrawRef.current = next;
+  }, [room?.state?.pending_draw_count]);
+
+  // Starts (or restarts) a 3-second "thinking window" every time a
+  // new decision begins for this player — a fresh turn, a phase
+  // change mid-turn (e.g. you play a question card and immediately
+  // owe an answer), or your hand changing size (you just drew).
+  // Hints stay hidden for the whole window; only once it elapses does
+  // the legal-play glow (see legality.ts) get allowed to show at all.
+  // Gated on !showShuffle too — the underlying room state (and this
+  // player's turn) can already be live while the shuffle animation is
+  // still playing, and that animation isn't thinking time, so the
+  // countdown shouldn't secretly burn down while the hand is still
+  // hidden behind it. Declared unconditionally, before the early
+  // returns below, per the Rules of Hooks — every value it reads is
+  // read via optional chaining since `state` can still be null here.
+  useEffect(() => {
+    const isMyTurnNow = room?.state?.current_player === playerId;
+
+    setHintsRevealed(false);
+
+    if (!isMyTurnNow || showShuffle) {
+      return;
+    }
+
+    const timer = setTimeout(() => setHintsRevealed(true), 3000);
+    return () => clearTimeout(timer);
+  }, [
+    playerId,
+    room?.state?.current_player,
+    room?.state?.phase,
+    room?.state?.my_hand.length,
+    showShuffle,
+  ]);
 
   const state = room?.state ?? null;
 
@@ -253,6 +355,20 @@ export function Table({ roomId, playerId, onLeave }: TableProps) {
   const me = state.players.find((player) => player.id === playerId);
   const winner = state.players.find((player) => player.id === state.winner_id);
 
+  // "In tension" = declared Niko Kadi AND still actually holding just
+  // the one card — has_declared_niko_kadi alone can go stale (the
+  // engine never un-sets it if a punishment draw pushes them back up
+  // to a full hand), so card_count is what keeps this accurate.
+  const isInNikoKadiTension = (player: (typeof state.players)[number]) =>
+    player.has_declared_niko_kadi &&
+    player.card_count === 1 &&
+    !player.is_eliminated;
+
+  const anyoneInNikoKadiTension = state.players.some(isInNikoKadiTension);
+
+  const nextUpPlayerId =
+    state.phase === "awaiting_move" ? computeNextUpPlayerId(state) : null;
+
   const canQuit =
     state.phase !== "finished" && !me?.is_eliminated && !voluntarilyLeft;
 
@@ -267,15 +383,20 @@ export function Table({ roomId, playerId, onLeave }: TableProps) {
   };
 
   return (
-    <div className="table">
+    <div
+      className={
+        anyoneInNikoKadiTension ? "table niko-kadi-ambient" : "table"
+      }
+    >
       <div className="table-topbar">
         {canQuit && (
           <button
             type="button"
-            className="quit-link"
+            className="forfeit-link"
             onClick={() => setShowQuitConfirm(true)}
+            title="Forfeit the match — you'll lose immediately"
           >
-            Quit game
+            🏳️ Forfeit Match
           </button>
         )}
         <button
@@ -320,6 +441,8 @@ export function Table({ roomId, playerId, onLeave }: TableProps) {
               "opponent",
               player.is_current_player ? "current" : "",
               player.is_eliminated ? "eliminated" : "",
+              isInNikoKadiTension(player) ? "niko-kadi-tension" : "",
+              player.id === nextUpPlayerId ? "up-next" : "",
             ]
               .filter(Boolean)
               .join(" ")}
@@ -333,16 +456,40 @@ export function Table({ roomId, playerId, onLeave }: TableProps) {
                 {player.card_count} card{player.card_count === 1 ? "" : "s"}
               </span>
             )}
+            {isInNikoKadiTension(player) && (
+              <span className="tension-badge" title="Declared Niko Kadi">
+                ✋
+              </span>
+            )}
+            {!player.is_current_player && player.id === nextUpPlayerId && (
+              <span className="up-next-label">Up next</span>
+            )}
           </div>
         ))}
       </div>
 
       <div className="board">
         <div className="discard-pile">
-          <PlayingCard card={state.top_card} />
+          <div key={landingPulse} className="card-landing-wrap">
+            <PlayingCard card={state.top_card} />
+          </div>
           {state.active_suit && (
             <span className="active-suit">Declared: {state.active_suit}</span>
           )}
+          <span
+            className={[
+              "draw-pile-count",
+              state.draw_pile_count <= 5
+                ? "critical"
+                : state.draw_pile_count <= 15
+                  ? "low"
+                  : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+          >
+            🂠 {state.draw_pile_count} left
+          </span>
         </div>
 
         <div className="table-status">
@@ -353,20 +500,21 @@ export function Table({ roomId, playerId, onLeave }: TableProps) {
                   ? "You won! 🎉"
                   : `${winner?.name ?? "A player"} won.`}
               </p>
-              {state.winner_id === playerId ? (
-                <button
-                  type="button"
-                  className="play-again"
-                  onClick={() => send({ type: "restart" })}
-                >
-                  Play again
-                </button>
-              ) : (
-                <p className="hint">
-                  Waiting for {winner?.name ?? "the winner"} to start a new
-                  game.
-                </p>
-              )}
+              {/* Any player who was ever seated in this room can start
+                  a fresh round now — not just the winner (see
+                  GameRoom.restart). A round often ends because someone
+                  forfeited rather than because anyone actually chose
+                  to stop, so nobody should be stuck waiting on a
+                  single player to click a button. */}
+              <button
+                type="button"
+                className="play-again"
+                onClick={() => send({ type: "restart" })}
+              >
+                {state.winner_id === playerId
+                  ? "Play again"
+                  : "Start new game"}
+              </button>
             </>
           ) : me?.is_eliminated ? (
             <p className="hint">
@@ -378,7 +526,7 @@ export function Table({ roomId, playerId, onLeave }: TableProps) {
             </p>
           ) : (
             <>
-              <p>
+              <p className={isMyTurn ? "turn-status my-turn" : "turn-status"}>
                 {isMyTurn
                   ? "Your turn"
                   : `Waiting on ${
@@ -387,8 +535,19 @@ export function Table({ roomId, playerId, onLeave }: TableProps) {
                       )?.name ?? "…"
                     }`}
               </p>
+              {isMyTurn && state.phase === "awaiting_move" && (
+                <p className="hint">Draw a card or play from your hand</p>
+              )}
               {state.phase === "awaiting_draw_response" && (
-                <p className="hint">
+                <p
+                  key={pressurePulse}
+                  className="hint draw-pressure-pulse"
+                  style={
+                    {
+                      "--pulse-scale": 1 + pressureDelta * 0.06,
+                    } as CSSProperties
+                  }
+                >
                   Draw pressure: {state.pending_draw_count}
                 </p>
               )}
@@ -411,11 +570,30 @@ export function Table({ roomId, playerId, onLeave }: TableProps) {
         />
       </div>
 
-      <div className="my-hand">
+      <div
+        className={
+          me && isInNikoKadiTension(me) ? "my-hand niko-kadi-tension" : "my-hand"
+        }
+      >
         <p className="hand-label">
           {me?.name ?? "You"} ({state.my_hand.length} card
           {state.my_hand.length === 1 ? "" : "s"})
+          {me && isInNikoKadiTension(me) && (
+            <span className="tension-badge" title="You declared Niko Kadi">
+              {" "}
+              ✋
+            </span>
+          )}
+          <span
+            className="hand-info-icon"
+            title="Same-rank cards play together. Take a moment — after a few seconds, a playable card will glow, but it's just a hint, not the only right answer."
+          >
+            ⓘ
+          </span>
         </p>
+        {!isMyTurn && me?.id === nextUpPlayerId && (
+          <p className="hint up-next-hint">You're up next</p>
+        )}
         <div className="hand-cards">
           {state.my_hand.map((card, index) => (
             <PlayingCard
@@ -423,6 +601,11 @@ export function Table({ roomId, playerId, onLeave }: TableProps) {
               card={card}
               disabled={!isMyTurn}
               selected={selectedIndices.has(index)}
+              legal={
+                isMyTurn && hintsRevealed && isCardLegal(card, state)
+                  ? true
+                  : undefined
+              }
               onClick={() => toggleCardSelection(index)}
             />
           ))}
@@ -457,7 +640,7 @@ export function Table({ roomId, playerId, onLeave }: TableProps) {
         )}
       </div>
 
-      <EventLog events={lastEvents} players={state.players} />
+      <EventLog entries={eventHistory} players={state.players} />
 
       {error && <p className="error toast">{error}</p>}
 
@@ -518,8 +701,8 @@ function ActionBar({
   if (phase === "awaiting_draw_response") {
     return (
       <div className="action-bar">
-        <button type="button" onClick={onDraw}>
-          Draw {pendingDrawCount} cards
+        <button type="button" className="draw-cta" onClick={onDraw}>
+          🂠 Draw {pendingDrawCount} cards
         </button>
       </div>
     );
@@ -527,8 +710,8 @@ function ActionBar({
 
   return (
     <div className="action-bar">
-      <button type="button" onClick={onDraw}>
-        Draw a card
+      <button type="button" className="draw-cta" onClick={onDraw}>
+        🂠 Draw a card
       </button>
     </div>
   );

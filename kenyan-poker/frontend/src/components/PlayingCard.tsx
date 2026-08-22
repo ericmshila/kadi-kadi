@@ -15,6 +15,17 @@ interface PlayingCardProps {
   disabled?: boolean;
   faceDown?: boolean;
   selected?: boolean;
+  // Client-side legality PREVIEW (see legality.ts) — purely a visual
+  // hint, and deliberately a POSITIVE-only one: `true` gives the card
+  // a subtle glow, anything else (false or undefined) renders the
+  // card completely plain. There's no "dimmed = illegal" treatment —
+  // that used to spoil the whole hand at a glance (every unplayable
+  // card visibly duller the instant it became your turn), which left
+  // nothing to actually think about. Table.tsx also delays ever
+  // passing `true` for a few seconds after a new decision starts, so
+  // even the glow isn't an instant answer. Never gates onClick/
+  // disabled regardless — the server is the real judge.
+  legal?: boolean;
 }
 
 export function PlayingCard({
@@ -23,6 +34,7 @@ export function PlayingCard({
   disabled,
   faceDown,
   selected,
+  legal,
 }: PlayingCardProps) {
   if (faceDown) {
     return (
@@ -47,6 +59,7 @@ export function PlayingCard({
     isJoker ? "joker" : "",
     interactive ? "interactive" : "",
     selected ? "selected" : "",
+    legal === true ? "legal-play" : "",
   ]
     .filter(Boolean)
     .join(" ");
