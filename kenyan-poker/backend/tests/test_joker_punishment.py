@@ -245,6 +245,59 @@ def test_ace_still_clears_joker_punishment_outright():
     assert len(cleared) == 1
 
 
+def test_normal_play_resumes_the_suit_underneath_a_resolved_joker_chain():
+    """
+    Once a Joker punishment is settled (someone just draws instead of
+    countering further), the discard pile's literal top card is the
+    Joker itself — which has no suit. Normal play afterwards should
+    still have to follow whatever suit was on top *before* the
+    Joker(s), not be thrown wide open just because the very top card
+    happens to be colourless.
+    """
+
+    rules = RuleConfig()
+
+    state = make_state(
+        hands={
+            "a": (
+                Card(Rank.SIX, Suit.HEARTS),  # matches the hearts underneath
+                Card(Rank.NINE, Suit.SPADES),  # matches neither suit nor rank
+                # Filler so playing the six leaves 2 cards, not 1 —
+                # a Niko Kadi requirement isn't what this test checks.
+                Card(Rank.FOUR, Suit.CLUBS),
+            ),
+            "b": tuple(),
+        },
+        phase=Phase.AWAITING_MOVE,
+        # A 6 of hearts was on top, then two Jokers got stacked on it
+        # (the second countering the first) before someone just drew
+        # instead of continuing the chain.
+        discard_pile=(
+            Card(Rank.SIX, Suit.HEARTS),
+            Card(Rank.JOKER, None, JokerColor.BLACK),
+            Card(Rank.JOKER, None, JokerColor.RED),
+        ),
+    )
+
+    illegal_action = PlayCardsAction(
+        player_id="a",
+        type=ActionType.PLAY_CARDS,
+        cards=(Card(Rank.NINE, Suit.SPADES),),
+    )
+
+    with pytest.raises(IllegalMove):
+        apply_move(state, illegal_action, rules)
+
+    legal_action = PlayCardsAction(
+        player_id="a",
+        type=ActionType.PLAY_CARDS,
+        cards=(Card(Rank.SIX, Suit.HEARTS),),
+    )
+
+    new_state, _events = apply_move(state, legal_action, rules)
+    assert new_state.current_player.id == "b"
+
+
 def test_wrong_color_still_valid_once_a_plain_two_is_on_top():
     """
     The colour restriction only applies while a Joker is directly on

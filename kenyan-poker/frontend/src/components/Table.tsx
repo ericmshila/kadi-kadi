@@ -191,13 +191,20 @@ export function Table({ roomId, playerId, onLeave }: TableProps) {
                   ? "You won! 🎉"
                   : `${winner?.name ?? "A player"} won.`}
               </p>
-              <button
-                type="button"
-                className="play-again"
-                onClick={() => send({ type: "restart" })}
-              >
-                Play again
-              </button>
+              {state.winner_id === playerId ? (
+                <button
+                  type="button"
+                  className="play-again"
+                  onClick={() => send({ type: "restart" })}
+                >
+                  Play again
+                </button>
+              ) : (
+                <p className="hint">
+                  Waiting for {winner?.name ?? "the winner"} to start a new
+                  game.
+                </p>
+              )}
             </>
           ) : me?.is_eliminated ? (
             <p className="hint">

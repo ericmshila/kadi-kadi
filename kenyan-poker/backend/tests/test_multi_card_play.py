@@ -270,3 +270,156 @@ def test_two_question_cards_ask_only_once():
     question_events = [e for e in events if e.type == EventType.QUESTION_ASKED]
     assert len(question_events) == 1
     assert question_events[0].payload["card_count"] == 2
+
+
+# ---------------------------------------------------------------------
+# Mixed-suit same-rank plays
+#
+# Legality for a same-rank group was only ever checked against
+# cards[0] — so a group like (5 of spades, 5 of hearts) on a hearts
+# pile was legal or not purely by luck of which one happened to be
+# listed first in the action, even though the group as a whole is
+# obviously playable (the 5 of hearts alone would be). These tests
+# pin the fix: order within the group must not matter.
+# ---------------------------------------------------------------------
+
+
+def test_multi_card_play_legal_regardless_of_which_card_is_listed_first():
+    rules = RuleConfig()
+
+    # Top card is 7 of hearts: required suit is hearts, and neither 5
+    # matches that top card's rank — the only reason this play is
+    # legal at all is that ONE of the two 5s is a heart.
+    state = make_state(
+        hands={
+            "a": (
+                Card(Rank.FIVE, Suit.SPADES),  # doesn't match hearts
+                Card(Rank.FIVE, Suit.HEARTS),  # does
+                Card(Rank.FOUR, Suit.CLUBS),
+                Card(Rank.SIX, Suit.CLUBS),
+            ),
+            "b": tuple(),
+        },
+        discard_pile=(Card(Rank.SEVEN, Suit.HEARTS),),
+    )
+
+    # The non-matching suit listed first used to get this wrongly
+    # rejected, even though the pair as a whole is legal.
+    action = PlayCardsAction(
+        player_id="a",
+        type=ActionType.PLAY_CARDS,
+        cards=(
+            Card(Rank.FIVE, Suit.SPADES),
+            Card(Rank.FIVE, Suit.HEARTS),
+        ),
+    )
+
+    new_state, _events = apply_move(state, action, rules)
+
+    assert len(new_state.hand_of("a")) == 2
+    assert new_state.current_player.id == "b"
+
+
+def test_multi_card_play_still_illegal_when_no_card_in_the_group_matches():
+    rules = RuleConfig()
+
+    state = make_state(
+        hands={
+            "a": (
+                Card(Rank.FIVE, Suit.SPADES),
+                Card(Rank.FIVE, Suit.CLUBS),
+                Card(Rank.FOUR, Suit.CLUBS),
+                Card(Rank.SIX, Suit.CLUBS),
+            ),
+            "b": tuple(),
+        },
+        # Required suit is hearts; neither 5 is a heart and neither
+        # matches the top card's rank (7) — genuinely not playable.
+        discard_pile=(Card(Rank.SEVEN, Suit.HEARTS),),
+    )
+
+    action = PlayCardsAction(
+        player_id="a",
+        type=ActionType.PLAY_CARDS,
+        cards=(
+            Card(Rank.FIVE, Suit.SPADES),
+            Card(Rank.FIVE, Suit.CLUBS),
+        ),
+    )
+
+    with pytest.raises(IllegalMove):
+        apply_move(state, action, rules)
+
+
+def test_multi_card_play_legal_via_shared_rank_regardless_of_suits():
+    rules = RuleConfig()
+
+    # Top card is 5 of diamonds: the shared rank (5) matches, so both
+    # cards ride along regardless of suit — neither is a diamond.
+    state = make_state(
+        hands={
+            "a": (
+                Card(Rank.FIVE, Suit.SPADES),
+                Card(Rank.FIVE, Suit.CLUBS),
+                Card(Rank.FOUR, Suit.CLUBS),
+                Card(Rank.SIX, Suit.CLUBS),
+            ),
+            "b": tuple(),
+        },
+        discard_pile=(Card(Rank.FIVE, Suit.DIAMONDS),),
+    )
+
+    action = PlayCardsAction(
+        player_id="a",
+        type=ActionType.PLAY_CARDS,
+        cards=(
+            Card(Rank.FIVE, Suit.SPADES),
+            Card(Rank.FIVE, Suit.CLUBS),
+        ),
+    )
+
+    new_state, _events = apply_move(state, action, rules)
+
+    assert len(new_state.hand_of("a")) == 2
+    assert new_state.current_player.id == "b"
+
+
+def test_question_answer_legal_regardless_of_which_card_is_listed_first():
+    """
+    Same anti-pattern, same fix, for answering a question — the
+    required-suit check only looked at cards[0] there too.
+    """
+
+    rules = RuleConfig()
+
+    state = make_state(
+        hands={
+            "a": (
+                Card(Rank.FOUR, Suit.SPADES),  # doesn't follow hearts
+                Card(Rank.FOUR, Suit.HEARTS),  # does
+                Card(Rank.SIX, Suit.CLUBS),
+            ),
+            "b": tuple(),
+        },
+        phase=Phase.AWAITING_ANSWER,
+        pending_question_player_id="a",
+        discard_pile=(Card(Rank.EIGHT, Suit.HEARTS),),
+    )
+
+    action = PlayCardsAction(
+        player_id="a",
+        type=ActionType.PLAY_CARDS,
+        cards=(
+            Card(Rank.FOUR, Suit.SPADES),
+            Card(Rank.FOUR, Suit.HEARTS),
+        ),
+        # Leaves "a" with 1 card (a finishable 6), so this must be
+        # declared — not what this test is about, just satisfying it.
+        declare_niko_kadi=True,
+    )
+
+    new_state, events = apply_move(state, action, rules)
+
+    assert len(new_state.hand_of("a")) == 1
+    answered = [e for e in events if e.type == EventType.QUESTION_ANSWERED]
+    assert len(answered) == 1

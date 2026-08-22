@@ -96,3 +96,23 @@ def test_existing_player_can_rejoin_after_the_game_has_started():
     assert response.status_code == 200
     assert response.json()["already_seated"] is True
     assert response.json()["player_count"] == 2
+
+
+def test_joining_with_a_lowercased_room_code_still_works():
+    """
+    Room codes are short and meant to be read aloud/typed by hand —
+    someone typing it back in lowercase (or with a stray space from
+    copy-paste) shouldn't get "room not found".
+    """
+
+    client = TestClient(app)
+    room_id = client.post("/api/rooms").json()["room_id"]
+    assert room_id == room_id.upper()  # sanity: codes are generated upper-case
+
+    response = client.post(
+        f"/api/rooms/{room_id.lower()}/join",
+        json={"player_id": "p1", "player_name": "Amina"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["player_count"] == 1

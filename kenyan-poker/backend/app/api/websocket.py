@@ -133,10 +133,10 @@ async def _handle_message(
     if message.get("type") == "restart":
         # Not a rules-engine "move" on the current state (it replaces
         # the state outright), so it's handled here rather than going
-        # through _parse_action/room.apply like everything else. Any
-        # player still connected can trigger it once the round is over.
+        # through _parse_action/room.apply like everything else. Only
+        # the winner of the round that just ended may trigger it.
         try:
-            events = room.restart()
+            events = room.restart(player_id)
         except ValueError as exc:
             await connection_manager.send_to_player(
                 room_id,

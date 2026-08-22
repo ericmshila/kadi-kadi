@@ -214,7 +214,13 @@ export function Lobby({
           <input
             placeholder="Room code"
             value={roomIdInput}
-            onChange={(event) => setRoomIdInput(event.target.value)}
+            // Codes are generated upper-case; matching that as they
+            // type makes it obvious the code they're copying down is
+            // the one that'll actually match (the server also
+            // normalizes case, so this is just for clarity).
+            onChange={(event) =>
+              setRoomIdInput(event.target.value.toUpperCase())
+            }
           />
           <button disabled={busy} onClick={() => void handleJoin()}>
             Join room

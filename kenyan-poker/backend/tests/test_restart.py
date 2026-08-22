@@ -3,9 +3,10 @@
 once one round finishes, without having to leave the room and
 re-create it.
 
-No host/owner concept: any player still seated can trigger a restart
-(see GameRoom.restart's docstring), it just requires the previous
-round to actually be over.
+No persistent host/owner concept, but restart authority isn't open to
+just anyone either: only the winner of the round that just ended may
+trigger it (see GameRoom.restart's docstring). That winner can be a
+different player each round.
 """
 
 import pytest
@@ -37,7 +38,7 @@ def test_restart_before_first_start_raises():
     room = _two_player_room()
 
     with pytest.raises(ValueError):
-        room.restart()
+        room.restart("a")
 
 
 def test_restart_while_round_in_progress_raises():
@@ -47,7 +48,7 @@ def test_restart_while_round_in_progress_raises():
     assert room.state.phase != Phase.FINISHED
 
     with pytest.raises(ValueError):
-        room.restart()
+        room.restart("a")
 
 
 def test_restart_after_finish_deals_a_fresh_round():
@@ -63,7 +64,7 @@ def test_restart_after_finish_deals_a_fresh_round():
         eliminated_player_ids=frozenset({"b"}),
     )
 
-    events = room.restart()
+    events = room.restart("a")
 
     assert room.state.phase != Phase.FINISHED
     assert room.state.winner_id is None
@@ -78,10 +79,41 @@ def test_restart_keeps_same_room_and_players_list():
     room.start_game()
     room.state = room.state.replace(phase=Phase.FINISHED, winner_id="a")
 
-    room.restart()
+    room.restart("a")
 
     assert len(room.players) == 2
     assert {p.id for p in room.players} == {"a", "b"}
+
+
+def test_restart_by_non_winner_raises():
+    room = _two_player_room()
+    room.start_game()
+    room.state = room.state.replace(phase=Phase.FINISHED, winner_id="a")
+
+    with pytest.raises(ValueError):
+        room.restart("b")
+
+    # The loss stays untouched — no fresh round was dealt.
+    assert room.state.phase == Phase.FINISHED
+    assert room.state.winner_id == "a"
+
+
+def test_restart_by_a_different_winner_each_round_is_allowed():
+    """
+    Restart authority follows whoever won the round that just ended,
+    not a fixed "host" — so it can be a different player each time.
+    """
+
+    room = _two_player_room()
+    room.start_game()
+    room.state = room.state.replace(phase=Phase.FINISHED, winner_id="a")
+    room.restart("a")
+
+    room.state = room.state.replace(phase=Phase.FINISHED, winner_id="b")
+    events = room.restart("b")
+
+    assert room.state.phase != Phase.FINISHED
+    assert any(event.type.value == "game_started" for event in events)
 
 
 def test_websocket_restart_message_broadcasts_fresh_state():
@@ -139,3 +171,33 @@ def test_websocket_restart_before_finish_sends_error():
         message = ws.receive_json()
 
         assert message["type"] == "error"
+
+
+def test_websocket_restart_by_non_winner_sends_error():
+    client = TestClient(app)
+
+    room_id = client.post("/api/rooms").json()["room_id"]
+    client.post(
+        f"/api/rooms/{room_id}/join",
+        json={"player_id": "a", "player_name": "Amina"},
+    )
+    client.post(
+        f"/api/rooms/{room_id}/join",
+        json={"player_id": "b", "player_name": "Brian"},
+    )
+    client.post(f"/api/rooms/{room_id}/start")
+
+    room = room_manager.get_room(room_id)
+    room.state = room.state.replace(phase=Phase.FINISHED, winner_id="a")
+
+    with client.websocket_connect(
+        f"/api/ws/rooms/{room_id}?player_id=b"
+    ) as ws:
+        ws.receive_json()  # initial state on connect
+
+        ws.send_json({"type": "restart"})
+
+        message = ws.receive_json()
+
+        assert message["type"] == "error"
+        assert room.state.phase == Phase.FINISHED  # nothing changed

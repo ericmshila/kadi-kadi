@@ -12,14 +12,26 @@ It acts as a thin wrapper around the rules engine.
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass, field
-from uuid import uuid4
 
 from app.rules.actions import PlayerAction
 from app.rules.config import RuleConfig
 from app.rules.engine import apply_move, create_initial_state
 from app.rules.events import GameEvent
 from app.rules.state import GameState, Phase, Player
+
+# Deliberately short and easy to read aloud/type on a phone: 30
+# characters ^ 5 = ~24M possible codes, no I/L/O/0/1 (easy to mix up
+# in handwriting or over voice chat while setting up a LAN game).
+_ROOM_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+_ROOM_CODE_LENGTH = 5
+
+
+def generate_room_code() -> str:
+    return "".join(
+        random.choice(_ROOM_CODE_ALPHABET) for _ in range(_ROOM_CODE_LENGTH)
+    )
 
 
 @dataclass
@@ -87,14 +99,16 @@ class GameRoom:
 
     def restart(
         self,
+        player_id: str,
         seed: int | None = None,
     ) -> list[GameEvent]:
         """
         Starts a fresh round for the same group of players once the
         current one has finished — a new shuffle, new hands, nobody
-        eliminated. Any player still in the room can trigger this
-        (there's no host/owner concept); it only requires the
-        previous round to actually be over.
+        eliminated. Only the winner of the round that just ended may
+        trigger this (there's still no persistent host/owner concept
+        beyond that — it's whoever won THIS round, which can be a
+        different player each time).
 
         Players who left the room mid-game are not removed, and no
         new players can be added here — the room's ``players`` list
@@ -111,6 +125,11 @@ class GameRoom:
         if self.state.phase != Phase.FINISHED:
             raise ValueError(
                 "Current round is still in progress."
+            )
+
+        if player_id != self.state.winner_id:
+            raise ValueError(
+                "Only the winner of the last round can start a new game."
             )
 
         state, events = create_initial_state(
@@ -169,6 +188,6 @@ def create_room(
 ) -> GameRoom:
 
     return GameRoom(
-        room_id=str(uuid4()),
+        room_id=generate_room_code(),
         rules=rules or RuleConfig(),
     )

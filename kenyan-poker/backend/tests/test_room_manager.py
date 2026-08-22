@@ -1,5 +1,7 @@
 import pytest
 
+from app.game import room as room_module
+from app.game.room import _ROOM_CODE_ALPHABET, _ROOM_CODE_LENGTH
 from app.game.room_manager import RoomManager
 from app.rules.config import RuleConfig
 from app.rules.state import Player
@@ -14,6 +16,59 @@ def test_create_room():
     assert room.room_id is not None
     assert manager.active_room_count() == 1
     assert manager.room_exists(room.room_id)
+
+
+def test_room_code_is_short_and_easy_to_read():
+    # Short enough to read aloud or type on a phone, and free of
+    # characters people commonly mix up (I/L/O/0/1).
+    manager = RoomManager()
+
+    room = manager.create_room()
+
+    assert len(room.room_id) == _ROOM_CODE_LENGTH
+    assert all(char in _ROOM_CODE_ALPHABET for char in room.room_id)
+    for ambiguous in "IL0O1":
+        assert ambiguous not in room.room_id
+
+
+def test_room_lookup_is_case_and_whitespace_insensitive():
+    # Someone typing a code in by hand shouldn't get "not found" just
+    # for lowercasing it or leaving a stray space from copy-paste.
+    manager = RoomManager()
+
+    room = manager.create_room()
+    assert room.room_id == room.room_id.upper()  # sanity: codes are upper-case
+
+    lowered = f" {room.room_id.lower()} "
+
+    assert manager.room_exists(lowered)
+    assert manager.get_room(lowered) is room
+
+
+def test_create_room_retries_on_a_code_collision(monkeypatch):
+    manager = RoomManager()
+
+    # room_manager.create_room() calls room.create_room() (possibly
+    # more than once, on a collision), which is what actually
+    # generates the code — patching it here covers every call site.
+    codes = iter(["AAAAA", "AAAAA", "BBBBB"])
+    monkeypatch.setattr(
+        room_module,
+        "generate_room_code",
+        lambda: next(codes),
+    )
+
+    first = manager.create_room()
+    assert first.room_id == "AAAAA"
+
+    # The next code generated collides with the first room's code —
+    # the manager should notice and regenerate rather than clobbering
+    # (or silently colliding with) the existing room.
+    second = manager.create_room()
+    assert second.room_id == "BBBBB"
+    assert manager.active_room_count() == 2
+    assert manager.get_room("AAAAA") is first
+    assert manager.get_room("BBBBB") is second
 
 
 def test_get_room_returns_same_room():

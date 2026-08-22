@@ -334,7 +334,7 @@ def _validate_normal_turn_play(
         # _apply_card_effects / rules.draw_ranks).
         return
 
-    if not _matches_required_suit_or_rank(state, card):
+    if not _matches_required_suit_or_rank(state, action.cards):
         raise IllegalMove(
             f"{card.label()} cannot be played on {state.top_card.label()}."
         )
@@ -360,7 +360,10 @@ def _validate_question_response(
 
     required_suit = _required_suit(state)
 
-    if card.suit != required_suit:
+    # All cards share a rank (enforced upstream), but not necessarily
+    # a suit — any one of them following the required suit is enough
+    # to legitimize answering with the whole same-rank group.
+    if not any(played.suit == required_suit for played in action.cards):
         raise IllegalMove("Question answer must follow the required suit.")
 
 
@@ -453,6 +456,12 @@ def _commit_play_cards(
         player_id=player_id,
         remaining_cards=len(new_hand),
         last_card=last_card,
+        rules=rules,
+    )
+
+    _validate_can_reach_one_card(
+        player_id=player_id,
+        new_hand=new_hand,
         rules=rules,
     )
 
@@ -996,22 +1005,53 @@ def _calculate_next_index(
 
 def _matches_required_suit_or_rank(
     state: GameState,
-    card: Card,
+    cards: tuple[Card, ...],
 ) -> bool:
+    """
+    Whether ``cards`` (all one rank — enforced by
+    ``_validate_play_action_shape``) can be laid down on the current
+    top card as a group.
+
+    Same rank as the top card always works, regardless of suit: that
+    check only needs one representative card since the whole group
+    shares it. Otherwise, the group still counts as playable as long
+    as ANY one of the cards follows the required suit — the rest just
+    ride along on the shared rank, so e.g. a 5 of hearts and a 5 of
+    spades can be played together on a hearts pile even though the
+    spade alone couldn't be.
+    """
+
+    if cards[0].rank == state.top_card.rank:
+        return True
 
     required_suit = _required_suit(state)
 
-    if card.suit == required_suit:
-        return True
-
-    if card.rank == state.top_card.rank:
-        return True
-
-    return False
+    return any(card.suit == required_suit for card in cards)
 
 
 def _required_suit(state: GameState) -> Optional[Suit]:
-    return state.active_suit or state.top_card.suit
+    """
+    The suit normal play must follow: an explicitly declared suit
+    (from an Ace) wins if there is one, otherwise the suit of the
+    card actually on top of the discard pile.
+
+    Jokers have no suit of their own, so if one or more sit on top of
+    the pile (played to punish, then themselves countered by another
+    Joker, etc.) this walks back underneath them to the last card
+    that *does* have a suit — the "underlying" suit/rank play
+    resumes on once the punishment chain is done, rather than
+    suddenly allowing anything just because the very top card
+    happens to be colourless.
+    """
+
+    if state.active_suit is not None:
+        return state.active_suit
+
+    for card in reversed(state.discard_pile):
+        if card.suit is not None:
+            return card.suit
+
+    return None
 
 
 def _is_ace(card: Card) -> bool:
@@ -1061,6 +1101,24 @@ def _remove_cards_from_hand(
     return new_hand
 
 
+def _can_finish_with(card: Card, rules: RuleConfig) -> bool:
+    """
+    Whether ``card`` is a rank the game can actually end on — used
+    both to validate an actual game-winning play (remaining_cards==0)
+    and, just as importantly, to stop a player from ever being left
+    holding a single card that could NEVER legally finish the game
+    (see _validate_can_reach_one_card below).
+    """
+
+    if _is_ace(card):
+        return rules.ace_can_finish
+
+    if _is_joker(card):
+        return rules.joker_can_finish
+
+    return card.rank in rules.finishable_ranks
+
+
 def _validate_finish_rules(
     player_id: str,
     remaining_cards: int,
@@ -1071,23 +1129,41 @@ def _validate_finish_rules(
     if remaining_cards != 0:
         return
 
-    if _is_ace(last_card):
-        if rules.ace_can_finish:
-            return
+    if not _can_finish_with(last_card, rules):
         raise IllegalMove(
             f"Player {player_id} cannot finish on {last_card.label()}."
         )
 
-    if _is_joker(last_card):
-        if rules.joker_can_finish:
-            return
-        raise IllegalMove(
-            f"Player {player_id} cannot finish on {last_card.label()}."
-        )
 
-    if last_card.rank not in rules.finishable_ranks:
+def _validate_can_reach_one_card(
+    player_id: str,
+    new_hand: list[Card],
+    rules: RuleConfig,
+) -> None:
+    """
+    "Niko Kadi" is a promise to win on the very next turn — so a
+    player should never be allowed to play their way down to a single
+    card that could never actually finish the game (an Ace when
+    ace_can_finish is off, a 2/3/8/J/Q/K, etc). They'd just be stuck
+    holding it, unable to ever legally end their turn on it.
+
+    Applies regardless of whether they remembered to send
+    declare_niko_kadi=True — reaching one card and declaring it are
+    tightly coupled everywhere else in this engine (see
+    _validate_niko_kadi), so this blocks the state itself rather than
+    just the announcement.
+    """
+
+    if len(new_hand) != 1:
+        return
+
+    remaining_card = new_hand[0]
+
+    if not _can_finish_with(remaining_card, rules):
         raise IllegalMove(
-            f"Player {player_id} cannot finish on {last_card.label()}."
+            f'Player {player_id} cannot declare "Niko Kadi" holding only '
+            f"{remaining_card.label()} — that card can never finish the "
+            "game."
         )
 
 
