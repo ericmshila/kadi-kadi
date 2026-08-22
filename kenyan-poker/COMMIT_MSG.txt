@@ -1,66 +1,47 @@
-feat: premium card-table redesign (UI/UX only, logic untouched)
+fix: forfeit banner after restart, color-coded names, stronger hint pulse
 
-Implements the requested visual/UX redesign brief. Reuses all existing
-state, handlers, and API/WebSocket wiring as-is — no game logic, card
-validation, turn logic, or multiplayer behavior changed. Backend
-untouched (129 tests still pass).
+Three fixes/enhancements from live testing feedback:
 
-Component decomposition (partial, per the brief's own "if
-appropriate... do not unnecessarily rewrite" hedge):
-- New OpponentPanel.tsx, CurrentCard.tsx, DrawButton.tsx (renamed
-  from the old in-file ActionBar), each taking the same props/data
-  Table.tsx already had — no new state, no hardcoded names/counts/
-  cards, everything still comes from room.state.
-- Deliberately did NOT extract TurnIndicator, GameHeader, QuitButton,
-  or the individual Chat/Sound buttons into their own files: those
-  are tightly interleaved with turn-status/pressure-pulse/aria-live
-  logic that's already covered by tests and prior verification passes,
-  and splitting them added regression risk without a real readability
-  win. This — plus the loading-state note below — is the adapted
-  portion of the brief; the rest was implemented as specified.
+1. Fix: the Forfeit Match button stayed hidden forever for a player
+   after they forfeited once, even in later rounds where they were
+   back in the game. Table.tsx tracks "I voluntarily forfeited"
+   client-side only (the server just knows eliminated-or-not, not
+   why), and nothing ever reset it — GameRoom.restart() re-seats
+   everyone with nobody eliminated, but the stale local flag kept
+   canQuit false regardless. Now reset on the "game_started" event
+   (fired fresh by every restart), the same event already used
+   elsewhere to detect a new round.
 
-Decorative table elements: a subtle gold hairline divider with two
-diamond caps under the top nav, and a soft radial glow behind the
-current card/turn area — both aria-hidden, pointer-events: none, and
-driven by two new low-alpha CSS tokens (--gold-decoration,
---panel-dark-* for future dark-panel work) rather than one-off
-literals.
+2. Feature: player names are now color-coded — a small, deterministic
+   per-player palette (playerColors.ts, hashed off the player id, so
+   it's stable across reconnects and restarts) applied to names in
+   the opponent panel, your own hand label, the "Waiting on X" / "X
+   won" turn-status text, and every player-name mention in the game
+   log (EventLog.tsx now builds each row as colored-name + plain-text
+   segments instead of one flat string). Deliberately never the only
+   signal for anything — the name text itself is always right there
+   too — and the palette avoids the hues already carrying meaning
+   elsewhere (gold/rose/sky-blue/red).
 
-Responsive design: added a real tablet tier (768px) and a fleshed-out
-mobile tier (480px, replacing the old single crude breakpoint). Mobile
-switches the hand to horizontal scroll instead of shrinking cards
-below a readable size. Document order (opponent panel → current card
-→ turn state → primary action → hand → log) already matched the
-brief's mobile priority list, so no reordering was needed.
+3. Enhancement: the legal-card hint (see the earlier delayed-glow
+   work) now pulses with a couple percent of scale alongside the
+   existing box-shadow brightening, so "ever so slightly" reads as an
+   actual heartbeat rather than just a color shift that's easy to
+   miss. Confirmed live that the computed transform genuinely
+   oscillates over the animation cycle.
 
-Accessibility: PlayingCard's interactive button now carries
-aria-pressed and a real aria-label built from the card's own rank/
-suit data ("Queen of spades", "Joker, red", "...selected" when
-picked) — never a hardcoded string. Added aria-live="polite" to the
-turn-status region so turn/pressure changes are announced without
-relying on color alone.
-
-Explicitly skipped: a fake "loading" state on the Draw button. The
-brief asks for one, but there's no real async request state in this
-fire-and-forget WebSocket architecture to represent — fabricating one
-would violate the brief's own "do not create fake functionality"
-rule. Also skipped a full mechanical rgba-literal-to-token refactor of
-pre-existing CSS (App.css/index.css) that was already visually correct
-from prior turns' work this session — only new/touched rules use the
-new tokens, to avoid a large-diff, high-regression-risk pass with no
-visible benefit.
-
-Everything else in the 20-section brief (deep emerald/gold palette,
-opponent avatars with gold rings, gold "YOUR TURN" state, gold CTA
-draw button, ivory cards with correct suit colors and Unicode suit
-glyphs, "NAME (N CARDS)" hand label with info icon, structured game
-log with icons/timestamps, discouraging Forfeit Match flow, max
-content width, hover/press/disabled button states, subtle-only
-animations) was already satisfied by this session's earlier turns or
-implemented here — well under the 40% skip/adapt allowance.
+Investigated but NOT changed: a report that a lone unfinishable last
+card (e.g. a Joker) "isn't allowed to play". Traced this in the
+engine directly — it's working as designed, not a soft-lock: Ace/2/3/
+8/J/Q/K/Joker can never be the literal winning card (traditional Kadi
+rule, see finishable_ranks/ace_can_finish/joker_can_finish in
+config.py), and a player stuck holding just one is always still free
+to draw instead (_apply_draw permits drawing in AWAITING_MOVE
+regardless of hand contents) — verified with a direct reproduction
+against the engine. Flagged back to confirm this is the wanted
+behavior before touching a core win-condition rule.
 
 Verified: tsc/build/lint clean, backend pytest 129 passed (no backend
-changes), and a live Playwright pass covering desktop/tablet/mobile
-screenshots, the mobile horizontal-scroll hand, aria-pressed/aria-label
-on cards, the delayed legal-hint glow, and the Forfeit Match confirm/
-cancel flow.
+changes), and a live Playwright pass covering the forfeit-then-restart
+button reappearing, matching colors for the same player id across both
+clients, and the animated scale pulse on the legal-hint glow.

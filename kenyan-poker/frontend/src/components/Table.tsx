@@ -12,6 +12,7 @@ import { CurrentCard } from "./CurrentCard";
 import { DrawButton } from "./DrawButton";
 import * as sound from "../sound";
 import { isCardLegal } from "../legality";
+import { colorForPlayer } from "../playerColors";
 import type { CardView, GameStateView, Suit } from "../types";
 
 interface TableProps {
@@ -159,6 +160,17 @@ export function Table({ roomId, playerId, onLeave }: TableProps) {
           } else {
             sound.playLose();
           }
+          break;
+
+        case "game_started":
+          // A fresh round (see GameRoom.restart) re-seats every
+          // player with no one eliminated — but "I voluntarily
+          // forfeited last round" is tracked client-side only (the
+          // server just knows eliminated-or-not, not why), so
+          // without this it would stay stuck true forever and hide
+          // the Forfeit Match button in every round after the first
+          // one this player ever forfeited.
+          setVoluntarilyLeft(false);
           break;
 
         default:
@@ -353,6 +365,9 @@ export function Table({ roomId, playerId, onLeave }: TableProps) {
   const opponents = state.players.filter((player) => player.id !== playerId);
   const me = state.players.find((player) => player.id === playerId);
   const winner = state.players.find((player) => player.id === state.winner_id);
+  const currentPlayer = state.players.find(
+    (player) => player.id === state.current_player,
+  );
 
   // "In tension" = declared Niko Kadi AND still actually holding just
   // the one card — has_declared_niko_kadi alone can go stale (the
@@ -452,9 +467,16 @@ export function Table({ roomId, playerId, onLeave }: TableProps) {
           {state.phase === "finished" ? (
             <>
               <p className="winner">
-                {state.winner_id === playerId
-                  ? "You won! 🎉"
-                  : `${winner?.name ?? "A player"} won.`}
+                {state.winner_id === playerId ? (
+                  "You won! 🎉"
+                ) : (
+                  <>
+                    <span style={winner ? { color: colorForPlayer(winner.id) } : undefined}>
+                      {winner?.name ?? "A player"}
+                    </span>{" "}
+                    won.
+                  </>
+                )}
               </p>
               {/* Any player who was ever seated in this room can start
                   a fresh round now — not just the winner (see
@@ -483,13 +505,22 @@ export function Table({ roomId, playerId, onLeave }: TableProps) {
           ) : (
             <>
               <p className={isMyTurn ? "turn-status my-turn" : "turn-status"}>
-                {isMyTurn
-                  ? "Your turn"
-                  : `Waiting on ${
-                      state.players.find(
-                        (player) => player.id === state.current_player,
-                      )?.name ?? "…"
-                    }`}
+                {isMyTurn ? (
+                  "Your turn"
+                ) : (
+                  <>
+                    Waiting on{" "}
+                    <span
+                      style={
+                        currentPlayer
+                          ? { color: colorForPlayer(currentPlayer.id) }
+                          : undefined
+                      }
+                    >
+                      {currentPlayer?.name ?? "…"}
+                    </span>
+                  </>
+                )}
               </p>
               {isMyTurn && state.phase === "awaiting_move" && (
                 <p className="hint">Draw a card or play from your hand</p>
@@ -532,7 +563,10 @@ export function Table({ roomId, playerId, onLeave }: TableProps) {
         }
       >
         <p className="hand-label">
-          {me?.name ?? "You"} ({state.my_hand.length} card
+          <span style={me ? { color: colorForPlayer(me.id) } : undefined}>
+            {me?.name ?? "You"}
+          </span>{" "}
+          ({state.my_hand.length} card
           {state.my_hand.length === 1 ? "" : "s"})
           {me && isInNikoKadiTension(me) && (
             <span className="tension-badge" title="You declared Niko Kadi">

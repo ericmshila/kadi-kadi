@@ -1,69 +1,91 @@
 import { useEffect, useRef } from "react";
 import type { GameEventView, GameLogEntryView, PlayerView } from "../types";
+import { colorForPlayer } from "../playerColors";
 
 function nameOf(players: PlayerView[], id: unknown): string {
   const found = players.find((player) => player.id === id);
   return found ? found.name : String(id);
 }
 
-function describe(event: GameEventView, players: PlayerView[]): string {
+// A row of log text, broken into plain-text segments and
+// player-name segments — the name segments get colored per-player
+// (see playerColors.ts) so a busy log still reads as "who did what"
+// at a glance, without ever relying on color alone (the name itself
+// is always right there as text too).
+type LogSegment = { text: string; playerId?: string };
+
+function nameSegment(players: PlayerView[], id: unknown): LogSegment {
+  return { text: nameOf(players, id), playerId: typeof id === "string" ? id : undefined };
+}
+
+function text(value: string): LogSegment {
+  return { text: value };
+}
+
+function describe(event: GameEventView, players: PlayerView[]): LogSegment[] {
   const payload = event.payload;
 
   switch (event.type) {
     case "card_played":
-      return `${nameOf(players, payload.player_id)} played ${payload.card}`;
+      return [nameSegment(players, payload.player_id), text(` played ${payload.card}`)];
     case "cards_drawn":
-      return `${nameOf(players, payload.player_id)} drew ${payload.count} card(s)`;
+      return [nameSegment(players, payload.player_id), text(` drew ${payload.count} card(s)`)];
     case "turn_advanced":
-      return `${nameOf(players, payload.current_player_id)}'s turn`;
+      return [nameSegment(players, payload.current_player_id), text("'s turn")];
     case "direction_reversed":
-      return "Direction reversed";
+      return [text("Direction reversed")];
     case "draw_stack_started":
-      return `Draw pressure started: ${payload.pending_draw_count}`;
+      return [text(`Draw pressure started: ${payload.pending_draw_count}`)];
     case "draw_stack_increased":
-      return `Draw pressure increased to ${payload.pending_draw_count}`;
+      return [text(`Draw pressure increased to ${payload.pending_draw_count}`)];
     case "draw_stack_cleared":
-      return `${nameOf(players, payload.player_id)} cleared the draw pressure`;
+      return [nameSegment(players, payload.player_id), text(" cleared the draw pressure")];
     case "question_asked": {
       const count = typeof payload.card_count === "number" ? payload.card_count : 1;
-      const prefix = count > 1 ? `Question asked (${count} cards)` : "Question asked";
-      return `${prefix} — ${nameOf(players, payload.target_player_id)} must answer`;
+      const prefix = count > 1 ? `Question asked (${count} cards) — ` : "Question asked — ";
+      return [text(prefix), nameSegment(players, payload.target_player_id), text(" must answer")];
     }
     case "question_answered":
-      return `${nameOf(players, payload.player_id)} answered the question`;
+      return [nameSegment(players, payload.player_id), text(" answered the question")];
     case "question_failed":
-      return `${nameOf(players, payload.player_id)} failed to answer`;
+      return [nameSegment(players, payload.player_id), text(" failed to answer")];
     case "skip_started": {
       const count = typeof payload.skip_count === "number" ? payload.skip_count : 1;
       const suffix = count > 1 ? ` (${count} players)` : "";
-      return `Skip aimed at ${nameOf(players, payload.target_player_id)}${suffix}`;
+      return [text("Skip aimed at "), nameSegment(players, payload.target_player_id), text(suffix)];
     }
     case "skip_countered":
-      return `${nameOf(players, payload.player_id)} countered the skip`;
+      return [nameSegment(players, payload.player_id), text(" countered the skip")];
     case "player_skipped":
-      return `${nameOf(players, payload.player_id)} was skipped`;
+      return [nameSegment(players, payload.player_id), text(" was skipped")];
     case "ace_counter_played":
-      return `${nameOf(players, payload.player_id)} countered with an Ace`;
+      return [nameSegment(players, payload.player_id), text(" countered with an Ace")];
     case "punishment_cleared":
-      return "Punishment cleared";
+      return [text("Punishment cleared")];
     case "suit_declared":
-      return `${nameOf(players, payload.player_id)} declared ${payload.suit}`;
+      return [nameSegment(players, payload.player_id), text(` declared ${payload.suit}`)];
     case "niko_kadi_declared":
-      return `${nameOf(players, payload.player_id)} declared "Niko Kadi"`;
+      return [nameSegment(players, payload.player_id), text(' declared "Niko Kadi"')];
     case "niko_kadi_penalty":
-      return `${nameOf(players, payload.player_id)} was penalized for not declaring "Niko Kadi"`;
+      return [
+        nameSegment(players, payload.player_id),
+        text(' was penalized for not declaring "Niko Kadi"'),
+      ];
     case "player_won":
-      return `${nameOf(players, payload.player_id)} won the game!`;
+      return [nameSegment(players, payload.player_id), text(" won the game!")];
     case "player_eliminated":
-      return `${nameOf(players, payload.player_id)} was eliminated (reached ${payload.hand_size} cards)`;
+      return [
+        nameSegment(players, payload.player_id),
+        text(` was eliminated (reached ${payload.hand_size} cards)`),
+      ];
     case "player_left":
-      return `${nameOf(players, payload.player_id)} left the game`;
+      return [nameSegment(players, payload.player_id), text(" left the game")];
     case "game_started":
-      return "Game started";
+      return [text("Game started")];
     case "game_finished":
-      return "Game finished";
+      return [text("Game finished")];
     default:
-      return event.type.replace(/_/g, " ");
+      return [text(event.type.replace(/_/g, " "))];
   }
 }
 
@@ -156,7 +178,15 @@ export function EventLog({ entries, players }: EventLogProps) {
                 {iconFor(entry.event.type)}
               </span>
               <span className="event-log-row-text">
-                {describe(entry.event, players)}
+                {describe(entry.event, players).map((segment, i) =>
+                  segment.playerId ? (
+                    <span key={i} style={{ color: colorForPlayer(segment.playerId) }}>
+                      {segment.text}
+                    </span>
+                  ) : (
+                    <span key={i}>{segment.text}</span>
+                  ),
+                )}
               </span>
               <span className="event-log-row-time">
                 {formatTime(entry.timestamp)}

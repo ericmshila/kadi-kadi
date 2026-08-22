@@ -1098,10 +1098,14 @@ button.playing-card.selected:hover:not(:disabled) {
 @keyframes legal-hint-glow {
   0%,
   100% {
+    transform: scale(1);
     box-shadow: 0 0 0 2px rgba(230, 181, 44, 0.28),
       0 5px 10px rgba(0, 0, 0, 0.2);
   }
   50% {
+    /* "Ever so slightly" is the point — a couple percent of scale
+       reads as a heartbeat, not a bounce. */
+    transform: scale(1.025);
     box-shadow: 0 0 0 2px rgba(230, 181, 44, 0.55),
       0 5px 10px rgba(0, 0, 0, 0.2);
   }

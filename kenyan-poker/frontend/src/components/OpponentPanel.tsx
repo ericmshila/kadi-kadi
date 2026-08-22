@@ -1,4 +1,5 @@
 import type { PlayerView } from "../types";
+import { colorForPlayer } from "../playerColors";
 
 function initialOf(name: string): string {
   return name.trim().charAt(0).toUpperCase() || "?";
@@ -45,7 +46,9 @@ export function OpponentPanel({
             <span className="avatar" aria-hidden="true">
               {initialOf(player.name)}
             </span>
-            <span className="name">{player.name}</span>
+            <span className="name" style={{ color: colorForPlayer(player.id) }}>
+              {player.name}
+            </span>
             {player.is_eliminated ? (
               <span className="count">Eliminated</span>
             ) : (
