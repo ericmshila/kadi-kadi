@@ -346,7 +346,7 @@ def test_ace_counters_draw_punishment():
     NOT grant the "declare the next suit" power (any declared_suit
     sent along with it is ignored). Follow-up play instead falls back
     to the Ace's own printed suit, same as any other card would (see
-    _required_suit's discard-pile walk-back).
+    GameState.required_suit's discard-pile walk-back).
     """
 
     rules = RuleConfig()

@@ -147,8 +147,11 @@ async def _handle_message(
     if message.get("type") == "restart":
         # Not a rules-engine "move" on the current state (it replaces
         # the state outright), so it's handled here rather than going
-        # through _parse_action/room.apply like everything else. Only
-        # the winner of the round that just ended may trigger it.
+        # through _parse_action/room.apply like everything else. Any
+        # player who was seated in this room may trigger it (see
+        # GameRoom.restart) — not just the winner, since a round often
+        # ends because someone forfeited rather than because anyone
+        # actually chose to stop.
         try:
             events = room.restart(player_id)
         except ValueError as exc:

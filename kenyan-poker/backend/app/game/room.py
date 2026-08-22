@@ -105,10 +105,18 @@ class GameRoom:
         """
         Starts a fresh round for the same group of players once the
         current one has finished — a new shuffle, new hands, nobody
-        eliminated. Only the winner of the round that just ended may
-        trigger this (there's still no persistent host/owner concept
-        beyond that — it's whoever won THIS round, which can be a
-        different player each time).
+        eliminated.
+
+        Any player who was seated in this room (whether they won,
+        lost, were eliminated by a punishment forfeit, or quit
+        mid-game) may trigger this — not just the winner. A round
+        commonly ends because someone forfeited rather than because
+        anyone actually wanted to stop playing, so gating the restart
+        behind "only the winner clicks a button" would leave everyone
+        else stuck waiting on a player who may not even still be
+        watching. There's still no persistent host/owner concept
+        beyond "seated in this room" — anyone who was ever in
+        ``self.players`` may re-deal.
 
         Players who left the room mid-game are not removed, and no
         new players can be added here — the room's ``players`` list
@@ -127,9 +135,10 @@ class GameRoom:
                 "Current round is still in progress."
             )
 
-        if player_id != self.state.winner_id:
+        if not any(player.id == player_id for player in self.players):
             raise ValueError(
-                "Only the winner of the last round can start a new game."
+                "Only a player who was seated in this room can start a "
+                "new game."
             )
 
         state, events = create_initial_state(

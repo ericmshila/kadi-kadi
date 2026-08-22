@@ -65,6 +65,19 @@ def serialize_room_for_player(
                 if state.active_suit
                 else None
             ),
+            # What a normal play (or question/draw/skip response) has
+            # to match right now — an explicitly declared suit if one
+            # is active, otherwise the suit of the nearest card in the
+            # discard pile that actually has one (see
+            # GameState.required_suit). Exposed so the client can
+            # preview which cards in hand are currently legal without
+            # duplicating the discard-pile walk-back itself.
+            "required_suit": (
+                state.required_suit.value
+                if state.required_suit
+                else None
+            ),
+            "draw_pile_count": len(state.draw_pile),
             "players": [
                 {
                     "id": player.id,
@@ -73,6 +86,9 @@ def serialize_room_for_player(
                     "is_current_player": player.id == state.current_player.id,
                     "is_you": player.id == player_id,
                     "is_eliminated": player.id in state.eliminated_player_ids,
+                    "has_declared_niko_kadi": (
+                        player.id in state.niko_kadi_declared_by
+                    ),
                 }
                 for player in state.players
             ],

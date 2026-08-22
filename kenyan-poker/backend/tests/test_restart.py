@@ -4,9 +4,13 @@ once one round finishes, without having to leave the room and
 re-create it.
 
 No persistent host/owner concept, but restart authority isn't open to
-just anyone either: only the winner of the round that just ended may
-trigger it (see GameRoom.restart's docstring). That winner can be a
-different player each round.
+literally anyone either: any player who was ever seated in this room
+may trigger it (see GameRoom.restart's docstring) — not just whoever
+won the round that just ended. A round commonly ends because someone
+forfeited rather than because anyone actually chose to stop playing,
+so restricting this to "only the winner clicks a button" would leave
+everyone else stuck waiting on a player who may not even still be
+watching.
 """
 
 import pytest
@@ -85,23 +89,63 @@ def test_restart_keeps_same_room_and_players_list():
     assert {p.id for p in room.players} == {"a", "b"}
 
 
-def test_restart_by_non_winner_raises():
+def test_restart_by_the_loser_is_allowed():
+    """
+    A round often ends because someone forfeited, not because either
+    player actually chose to stop — so the player who DIDN'T win a
+    given round must still be able to deal a fresh one.
+    """
+
+    room = _two_player_room()
+    room.start_game()
+    room.state = room.state.replace(phase=Phase.FINISHED, winner_id="a")
+
+    events = room.restart("b")
+
+    assert room.state.phase != Phase.FINISHED
+    assert room.state.winner_id is None
+    assert any(event.type.value == "game_started" for event in events)
+
+
+def test_restart_by_an_eliminated_or_departed_player_is_allowed():
+    """
+    A player who was forfeited out (punishment forfeit) or who quit
+    mid-round is still someone who was seated in this room, and may
+    still want to start a fresh one once it's over.
+    """
+
+    room = _two_player_room()
+    room.start_game()
+    room.state = room.state.replace(
+        phase=Phase.FINISHED,
+        winner_id="a",
+        eliminated_player_ids=frozenset({"b"}),
+    )
+
+    events = room.restart("b")
+
+    assert room.state.phase != Phase.FINISHED
+    assert room.state.eliminated_player_ids == frozenset()
+    assert any(event.type.value == "game_started" for event in events)
+
+
+def test_restart_by_someone_never_seated_in_the_room_raises():
     room = _two_player_room()
     room.start_game()
     room.state = room.state.replace(phase=Phase.FINISHED, winner_id="a")
 
     with pytest.raises(ValueError):
-        room.restart("b")
+        room.restart("stranger")
 
-    # The loss stays untouched — no fresh round was dealt.
+    # Nothing changed — the illegitimate restart attempt had no effect.
     assert room.state.phase == Phase.FINISHED
     assert room.state.winner_id == "a"
 
 
 def test_restart_by_a_different_winner_each_round_is_allowed():
     """
-    Restart authority follows whoever won the round that just ended,
-    not a fixed "host" — so it can be a different player each time.
+    Whoever happens to win can also restart — this isn't exclusive,
+    it's just one more seated player among the others.
     """
 
     room = _two_player_room()
@@ -173,7 +217,7 @@ def test_websocket_restart_before_finish_sends_error():
         assert message["type"] == "error"
 
 
-def test_websocket_restart_by_non_winner_sends_error():
+def test_websocket_restart_by_non_winner_broadcasts_fresh_state():
     client = TestClient(app)
 
     room_id = client.post("/api/rooms").json()["room_id"]
@@ -199,5 +243,13 @@ def test_websocket_restart_by_non_winner_sends_error():
 
         message = ws.receive_json()
 
-        assert message["type"] == "error"
-        assert room.state.phase == Phase.FINISHED  # nothing changed
+        assert message["type"] == "state"
+        assert message["room"]["state"]["phase"] != "finished"
+
+
+    # No websocket-level "restart by a stranger" test here: the socket
+    # layer itself already refuses to connect anyone who isn't seated
+    # in the room (see room_websocket's join check above the message
+    # loop), so a stranger can never even reach the restart handler
+    # that way. test_restart_by_someone_never_seated_in_the_room_raises
+    # covers the ValueError path directly against GameRoom.restart.

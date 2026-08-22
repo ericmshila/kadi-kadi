@@ -147,6 +147,31 @@ class GameState:
     def active_player_count(self) -> int:
         return len(self.players) - len(self.eliminated_player_ids)
 
+    @property
+    def required_suit(self) -> Optional[Suit]:
+        """
+        The suit normal play must follow: an explicitly declared suit
+        (from an Ace) wins if there is one, otherwise the suit of the
+        card actually on top of the discard pile.
+
+        Jokers have no suit of their own, so if one or more sit on top
+        of the pile (played to punish, then themselves countered by
+        another Joker, etc.) this walks back underneath them to the
+        last card that *does* have a suit — the "underlying" suit/rank
+        play resumes on once the punishment chain is done, rather than
+        suddenly allowing anything just because the very top card
+        happens to be colourless.
+        """
+
+        if self.active_suit is not None:
+            return self.active_suit
+
+        for card in reversed(self.discard_pile):
+            if card.suit is not None:
+                return card.suit
+
+        return None
+
     def hand_of(self, player_id: str) -> tuple[Card, ...]:
         return self.hands[player_id]
 

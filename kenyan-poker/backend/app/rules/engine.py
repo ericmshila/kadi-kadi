@@ -30,7 +30,7 @@ from .actions import (
     QuitAction,
     SayNikoKadiAction,
 )
-from .cards import Card, Rank, Suit, shuffled_deck
+from .cards import Card, Rank, shuffled_deck
 from .config import RuleConfig
 from .events import EventType, GameEvent
 from .state import GameState, Phase, Player
@@ -364,7 +364,7 @@ def _validate_question_response(
     if card.rank not in rules.question_answer_ranks:
         raise IllegalMove("This card cannot answer a question.")
 
-    required_suit = _required_suit(state)
+    required_suit = state.required_suit
 
     # All cards share a rank (enforced upstream), but not necessarily
     # a suit — any one of them following the required suit is enough
@@ -421,7 +421,7 @@ def _validate_draw_response(
         # does NOT cancel 2 of hearts. A Joker can still counter
         # unconditionally (it has no suit of its own), same as before.
         if not _matches_required_suit_or_rank(state, action.cards):
-            required_suit = _required_suit(state)
+            required_suit = state.required_suit
             raise IllegalMove(
                 f"Only another {state.top_card.rank.value} (any suit), a "
                 f"{required_suit.value} card, a Joker, or an Ace can "
@@ -650,8 +650,8 @@ def _apply_ace_effect(
     case — does NOT also grant the suit-declare power. Any
     declared_suit the client sends in that situation is ignored;
     active_suit is left unset, so normal play afterwards just follows
-    the Ace's own printed suit (via _required_suit's discard-pile
-    walk-back), the same as any other card would.
+    the Ace's own printed suit (via GameState.required_suit's
+    discard-pile walk-back), the same as any other card would.
     """
 
     player_id = action.player_id
@@ -1166,34 +1166,9 @@ def _matches_required_suit_or_rank(
     if cards[0].rank == state.top_card.rank:
         return True
 
-    required_suit = _required_suit(state)
+    required_suit = state.required_suit
 
     return any(card.suit == required_suit for card in cards)
-
-
-def _required_suit(state: GameState) -> Optional[Suit]:
-    """
-    The suit normal play must follow: an explicitly declared suit
-    (from an Ace) wins if there is one, otherwise the suit of the
-    card actually on top of the discard pile.
-
-    Jokers have no suit of their own, so if one or more sit on top of
-    the pile (played to punish, then themselves countered by another
-    Joker, etc.) this walks back underneath them to the last card
-    that *does* have a suit — the "underlying" suit/rank play
-    resumes on once the punishment chain is done, rather than
-    suddenly allowing anything just because the very top card
-    happens to be colourless.
-    """
-
-    if state.active_suit is not None:
-        return state.active_suit
-
-    for card in reversed(state.discard_pile):
-        if card.suit is not None:
-            return card.suit
-
-    return None
 
 
 def _is_ace(card: Card) -> bool:
