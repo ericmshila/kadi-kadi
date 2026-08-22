@@ -27,6 +27,7 @@ from .actions import (
     PassAction,
     PlayCardsAction,
     PlayerAction,
+    QuitAction,
     SayNikoKadiAction,
 )
 from .cards import Card, Rank, Suit, shuffled_deck
@@ -128,6 +129,9 @@ def apply_move(
 
     if isinstance(action, SayNikoKadiAction):
         return _apply_say_niko_kadi(state, action)
+
+    if isinstance(action, QuitAction):
+        return _apply_quit(state, action)
 
     if action.player_id != state.current_player.id:
         raise IllegalMove("It is not this player's turn.")
@@ -406,21 +410,22 @@ def _validate_draw_response(
                     )
 
     elif not _is_joker(card):
-        # Countering one suited draw card (2/3) with another requires
-        # matching its suit — e.g. 3 of diamonds cancels 2 of
-        # diamonds, but 3 of diamonds does NOT cancel 2 of hearts.
-        # Unlike a normal turn play, sharing a rank isn't its own
-        # escape hatch here — "another draw card" alone (regardless of
-        # suit) used to be enough, but that let players cancel
-        # punishment with a completely unrelated card. A Joker can
-        # still counter unconditionally (it has no suit of its own),
-        # same as before.
-        required_suit = _required_suit(state)
-
-        if not any(played.suit == required_suit for played in action.cards):
+        # Countering one suited draw card (2/3) with another follows
+        # the same "same rank always works, otherwise match the suit"
+        # rule as a normal turn play (see
+        # _matches_required_suit_or_rank): a 3 counters a 3 (or a 2
+        # counters a 2) regardless of suit — they're both draw cards
+        # of the same rank, no suit relationship needed. But a 3
+        # countering a 2 (or vice versa) does need to match its suit —
+        # e.g. 3 of diamonds cancels 2 of diamonds, but 3 of diamonds
+        # does NOT cancel 2 of hearts. A Joker can still counter
+        # unconditionally (it has no suit of its own), same as before.
+        if not _matches_required_suit_or_rank(state, action.cards):
+            required_suit = _required_suit(state)
             raise IllegalMove(
-                f"Only a {required_suit.value} card (or a Joker, or an Ace) "
-                "can counter this draw pressure."
+                f"Only another {state.top_card.rank.value} (any suit), a "
+                f"{required_suit.value} card, a Joker, or an Ace can "
+                "counter this draw pressure."
             )
 
 
@@ -484,11 +489,12 @@ def _commit_play_cards(
         rules=rules,
     )
 
-    _validate_can_reach_one_card(
-        player_id=player_id,
-        new_hand=new_hand,
-        rules=rules,
-    )
+    if rules.restrict_lone_card_to_finishable:
+        _validate_can_reach_one_card(
+            player_id=player_id,
+            new_hand=new_hand,
+            rules=rules,
+        )
 
     new_hands = dict(state.hands)
     new_hands[player_id] = tuple(new_hand)
@@ -930,17 +936,25 @@ def _reshuffle_discard_into_draw_pile(
 # ---------------------------------------------------------------------
 
 
-def _forfeit_player(
+def _remove_player_from_play(
     state: GameState,
     player_id: str,
+    event_type: EventType,
 ) -> tuple[GameState, list[GameEvent]]:
     """
-    Eliminate a player who was punished up to the forfeit hand size
-    with no way to avoid it.
+    Shared machinery for taking a player out of an in-progress game —
+    whether they were forced out (a forfeit, see _forfeit_player) or
+    left on their own (a quit, see _apply_quit).
 
     Their hand is shuffled back into the draw pile so those cards
-    stay in circulation for the remaining players. If only one player
-    is left standing after this, the game ends and they win.
+    stay in circulation for the remaining players, and their seat is
+    marked eliminated (skipped in turn order from then on, per
+    _calculate_next_index). If only one player is left standing after
+    this, the game concludes with them as the winner.
+
+    `event_type` is the caller's choice of PLAYER_ELIMINATED or
+    PLAYER_LEFT so the UI can tell a forced forfeit apart from a
+    voluntary departure.
     """
 
     hand_size = len(state.hand_of(player_id))
@@ -962,35 +976,120 @@ def _forfeit_player(
 
     events = [
         GameEvent(
-            type=EventType.PLAYER_ELIMINATED,
+            type=event_type,
             payload={"player_id": player_id, "hand_size": hand_size},
         )
     ]
 
-    if new_state.active_player_count == 1:
-        winner_id = next(
-            player.id
-            for player in new_state.players
-            if player.id not in new_state.eliminated_player_ids
-        )
+    new_state, conclusion_events = _conclude_if_one_player_remains(new_state)
+    events.extend(conclusion_events)
 
+    return new_state, events
+
+
+def _conclude_if_one_player_remains(
+    state: GameState,
+) -> tuple[GameState, list[GameEvent]]:
+    """
+    If elimination/departure has left exactly one active player, end
+    the game with them as the winner. No-op otherwise.
+    """
+
+    if state.active_player_count != 1:
+        return state, []
+
+    winner_id = next(
+        player.id
+        for player in state.players
+        if player.id not in state.eliminated_player_ids
+    )
+
+    new_state = state.replace(
+        phase=Phase.FINISHED,
+        winner_id=winner_id,
+    )
+
+    events = [
+        GameEvent(
+            type=EventType.PLAYER_WON,
+            payload={"player_id": winner_id},
+        ),
+        GameEvent(
+            type=EventType.GAME_FINISHED,
+            payload={"winner_id": winner_id},
+        ),
+    ]
+
+    return new_state, events
+
+
+def _forfeit_player(
+    state: GameState,
+    player_id: str,
+) -> tuple[GameState, list[GameEvent]]:
+    """
+    Eliminate a player who was punished up to the forfeit hand size
+    with no way to avoid it. See _remove_player_from_play for the
+    shared mechanics.
+    """
+
+    return _remove_player_from_play(
+        state=state,
+        player_id=player_id,
+        event_type=EventType.PLAYER_ELIMINATED,
+    )
+
+
+def _apply_quit(
+    state: GameState,
+    action: QuitAction,
+) -> tuple[GameState, list[GameEvent]]:
+    """
+    Voluntarily leave an in-progress game at any point — not just on
+    your own turn (apply_move special-cases QuitAction ahead of the
+    turn-ownership check, exactly like SayNikoKadiAction).
+
+    Shares _forfeit_player's "return the hand to the draw pile,
+    eliminate the seat, auto-conclude if one player remains"
+    machinery via _remove_player_from_play, but emits PLAYER_LEFT
+    instead of PLAYER_ELIMINATED since this wasn't a forced-draw
+    punishment.
+
+    If the player who quit was mid-obligation (their own turn, or the
+    target of a pending question/skip/draw response — these always
+    coincide, since the engine only ever points current_player at
+    whoever holds the pending obligation), that obligation is cleared
+    and the turn moves on to the next active player. Otherwise the
+    game's current turn/phase is untouched.
+    """
+
+    if action.player_id not in state.hands:
+        raise IllegalMove("Unknown player.")
+
+    if action.player_id in state.eliminated_player_ids:
+        raise IllegalMove("Player has already left the game.")
+
+    was_current_player = state.current_player.id == action.player_id
+
+    new_state, events = _remove_player_from_play(
+        state=state,
+        player_id=action.player_id,
+        event_type=EventType.PLAYER_LEFT,
+    )
+
+    if new_state.phase == Phase.FINISHED:
+        return new_state, events
+
+    if was_current_player:
         new_state = new_state.replace(
-            phase=Phase.FINISHED,
-            winner_id=winner_id,
+            phase=Phase.AWAITING_MOVE,
+            pending_draw_count=0,
+            pending_question_player_id=None,
+            pending_skip_player_id=None,
         )
 
-        events.extend(
-            [
-                GameEvent(
-                    type=EventType.PLAYER_WON,
-                    payload={"player_id": winner_id},
-                ),
-                GameEvent(
-                    type=EventType.GAME_FINISHED,
-                    payload={"winner_id": winner_id},
-                ),
-            ]
-        )
+        new_state, turn_events = _advance_turn(new_state, steps=1)
+        events.extend(turn_events)
 
     return new_state, events
 
@@ -1184,11 +1283,13 @@ def _validate_can_reach_one_card(
     rules: RuleConfig,
 ) -> None:
     """
-    "Niko Kadi" is a promise to win on the very next turn — so a
-    player should never be allowed to play their way down to a single
-    card that could never actually finish the game (an Ace when
-    ace_can_finish is off, a 2/3/8/J/Q/K, etc). They'd just be stuck
-    holding it, unable to ever legally end their turn on it.
+    Opt-in via rules.restrict_lone_card_to_finishable (off by
+    default — see that flag's docstring in config.py for why): when
+    enabled, a player is never allowed to play their way down to a
+    single card that could never actually finish the game (an Ace, a
+    2/3/8/J/Q/K, a Joker — see finishable_ranks/ace_can_finish/
+    joker_can_finish). They'd just be stuck holding it, unable to
+    ever legally end their turn on it.
 
     Applies regardless of whether they remembered to send
     declare_niko_kadi=True — reaching one card and declaring it are

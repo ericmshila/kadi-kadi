@@ -529,10 +529,12 @@ def test_can_finish_on_plain_card():
     assert any(event.type == EventType.PLAYER_WON for event in events)
 
 
-def test_can_finish_on_ace_by_default():
-    # Every card is playable at the player's whim by default,
-    # including as the winning play (see RuleConfig.ace_can_finish).
-    # See tests/test_ace_rules.py for the restricted-config variant.
+def test_cannot_finish_on_ace_by_default():
+    # Only a plain, effect-free rank can literally end the game by
+    # default (see RuleConfig.finishable_ranks/ace_can_finish) — an
+    # Ace can be a player's lone card, but can't itself be the
+    # winning play. See tests/test_ace_rules.py for the
+    # explicitly-enabled variant.
     rules = RuleConfig()
 
     state = make_state(
@@ -552,16 +554,14 @@ def test_can_finish_on_ace_by_default():
         declared_suit=Suit.CLUBS,
     )
 
-    new_state, events = apply_move(state, action, rules)
-
-    assert new_state.phase == Phase.FINISHED
-    assert new_state.winner_id == "a"
+    with pytest.raises(IllegalMove):
+        apply_move(state, action, rules)
 
 
-def test_can_finish_on_jack_by_default():
-    # Jack is a power card (skip), but it's still in finishable_ranks
-    # by default now. See tests/test_finish_rules.py for the
-    # restricted-config variant that still enforces this.
+def test_cannot_finish_on_jack_by_default():
+    # Jack is a power card (skip) and isn't in finishable_ranks by
+    # default. See tests/test_finish_rules.py for the
+    # explicitly-enabled variant.
     rules = RuleConfig()
 
     state = make_state(
@@ -580,7 +580,5 @@ def test_can_finish_on_jack_by_default():
         cards=(Card(Rank.JACK, Suit.HEARTS),),
     )
 
-    new_state, events = apply_move(state, action, rules)
-
-    assert new_state.phase == Phase.FINISHED
-    assert new_state.winner_id == "a"
+    with pytest.raises(IllegalMove):
+        apply_move(state, action, rules)

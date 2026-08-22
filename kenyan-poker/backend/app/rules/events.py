@@ -102,6 +102,11 @@ class EventType(str, Enum):
 
     PLAYER_ELIMINATED = "player_eliminated"
 
+    # A voluntary mid-game departure — distinct from PLAYER_ELIMINATED
+    # (a forced-draw punishment forfeit) so the UI can describe the
+    # two differently.
+    PLAYER_LEFT = "player_left"
+
 
 @dataclass(frozen=True)
 class GameEvent:

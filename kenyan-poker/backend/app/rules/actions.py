@@ -27,6 +27,7 @@ class ActionType(str, Enum):
     DRAW = "draw"
     PASS = "pass"
     SAY_NIKO_KADI = "say_niko_kadi"
+    QUIT = "quit"
 
 
 @dataclass(frozen=True)
@@ -101,6 +102,25 @@ class SayNikoKadiAction(PlayerAction):
     declare_niko_kadi=True on PlayCardsAction.
 
     Keeping this allows future flexibility.
+    """
+
+    pass
+
+
+# ------------------------------------------------------------------
+# Quit
+# ------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class QuitAction(PlayerAction):
+    """
+    Leave an in-progress game voluntarily, at any point — not just on
+    your own turn.
+
+    The engine bypasses the usual turn-ownership check for this
+    action (see apply_move), exactly like SayNikoKadiAction, since a
+    player should be able to step away without waiting for their turn
+    to come back around.
     """
 
     pass

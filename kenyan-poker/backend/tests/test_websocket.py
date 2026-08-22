@@ -282,3 +282,121 @@ def test_joker_punishment_over_the_real_websocket_wire():
     assert update_current["room"]["state"]["pending_draw_count"] == 5
     assert update_other["room"]["state"]["pending_draw_count"] == 5
     assert update_current["room"]["state"]["phase"] == "awaiting_draw_response"
+
+
+def test_chat_broadcasts_to_everyone_including_the_sender():
+    client = TestClient(app)
+    room_id = _create_and_start_room(client)
+
+    room = room_manager.get_room(room_id)
+    current_player_id = room.state.current_player.id
+    other_player_id = next(
+        p.id for p in room.players if p.id != current_player_id
+    )
+
+    with client.websocket_connect(
+        f"/api/ws/rooms/{room_id}?player_id={current_player_id}"
+    ) as ws_current:
+        ws_current.receive_json()  # initial state
+
+        with client.websocket_connect(
+            f"/api/ws/rooms/{room_id}?player_id={other_player_id}"
+        ) as ws_other:
+            ws_other.receive_json()  # initial state
+            ws_current.receive_json()  # player_connected notice
+
+            ws_current.send_json({"type": "chat", "text": "gg everyone"})
+
+            received_current = ws_current.receive_json()
+            received_other = ws_other.receive_json()
+
+    for received in (received_current, received_other):
+        assert received["type"] == "chat"
+        assert received["player_id"] == current_player_id
+        assert received["name"] == current_player_id
+        assert received["text"] == "gg everyone"
+
+
+def test_chat_does_not_touch_game_state():
+    client = TestClient(app)
+    room_id = _create_and_start_room(client)
+
+    room = room_manager.get_room(room_id)
+    current_player_id = room.state.current_player.id
+    state_before = room.state
+
+    with client.websocket_connect(
+        f"/api/ws/rooms/{room_id}?player_id={current_player_id}"
+    ) as ws:
+        ws.receive_json()  # initial state
+        ws.send_json({"type": "chat", "text": "hello"})
+        ws.receive_json()  # chat broadcast
+
+    assert room_manager.get_room(room_id).state == state_before
+
+
+def test_chat_works_regardless_of_whose_turn_it_is():
+    client = TestClient(app)
+    room_id = _create_and_start_room(client)
+
+    room = room_manager.get_room(room_id)
+    current_player_id = room.state.current_player.id
+    other_player_id = next(
+        p.id for p in room.players if p.id != current_player_id
+    )
+
+    with client.websocket_connect(
+        f"/api/ws/rooms/{room_id}?player_id={current_player_id}"
+    ) as ws_current:
+        ws_current.receive_json()  # initial state
+
+        with client.websocket_connect(
+            f"/api/ws/rooms/{room_id}?player_id={other_player_id}"
+        ) as ws_other:
+            ws_other.receive_json()  # initial state
+            ws_current.receive_json()  # player_connected notice
+
+            # other_player_id is NOT the current player, but chat
+            # should still work — it's not a rules-engine action.
+            ws_other.send_json({"type": "chat", "text": "not my turn but hi"})
+
+            received_current = ws_current.receive_json()
+            received_other = ws_other.receive_json()
+
+    for received in (received_current, received_other):
+        assert received["type"] == "chat"
+        assert received["player_id"] == other_player_id
+
+
+def test_blank_chat_message_is_rejected():
+    client = TestClient(app)
+    room_id = _create_and_start_room(client)
+
+    room = room_manager.get_room(room_id)
+    current_player_id = room.state.current_player.id
+
+    with client.websocket_connect(
+        f"/api/ws/rooms/{room_id}?player_id={current_player_id}"
+    ) as ws:
+        ws.receive_json()  # initial state
+        ws.send_json({"type": "chat", "text": "   "})
+
+        error = ws.receive_json()
+        assert error["type"] == "error"
+
+
+def test_chat_message_is_truncated_to_max_length():
+    client = TestClient(app)
+    room_id = _create_and_start_room(client)
+
+    room = room_manager.get_room(room_id)
+    current_player_id = room.state.current_player.id
+
+    with client.websocket_connect(
+        f"/api/ws/rooms/{room_id}?player_id={current_player_id}"
+    ) as ws:
+        ws.receive_json()  # initial state
+        ws.send_json({"type": "chat", "text": "x" * 5000})
+
+        received = ws.receive_json()
+        assert len(received["text"]) == 500

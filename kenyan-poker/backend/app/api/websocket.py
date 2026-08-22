@@ -21,6 +21,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.game.dependencies import connection_manager, room_manager
+from app.game.room import GameRoom
 from app.game.serializers import serialize_room_for_player
 from app.rules.actions import (
     ActionType,
@@ -28,6 +29,7 @@ from app.rules.actions import (
     PassAction,
     PlayCardsAction,
     PlayerAction,
+    QuitAction,
     SayNikoKadiAction,
 )
 from app.rules.cards import Card, JokerColor, Rank, Suit
@@ -39,6 +41,10 @@ router = APIRouter(
     prefix="/api",
     tags=["websocket"],
 )
+
+# Plenty for a casual room chat message; keeps one player from
+# flooding everyone else's screen with a single giant paste.
+_CHAT_MAX_LENGTH = 500
 
 
 @router.websocket("/ws/rooms/{room_id}")
@@ -122,6 +128,14 @@ async def _handle_message(
         )
         return
 
+    if message.get("type") == "chat":
+        # Not a rules-engine action and not gated on the game having
+        # started (unlike everything below) — chat is just relayed to
+        # everyone currently connected to the room, with no effect on
+        # GameState at all.
+        await _handle_chat(room, room_id, player_id, message)
+        return
+
     if room.state is None:
         await connection_manager.send_to_player(
             room_id,
@@ -171,6 +185,53 @@ async def _handle_message(
     await _broadcast_state(room_id, events)
 
 
+async def _handle_chat(
+    room: GameRoom,
+    room_id: str,
+    player_id: str,
+    message: dict[str, Any],
+) -> None:
+    """
+    Relay a chat message to everyone currently connected to the room
+    — including the sender, so every open tab/device for the same
+    player shows an identical, single source of truth for the
+    conversation rather than the sender optimistically rendering its
+    own message locally.
+
+    Plain text, no persistence, no encryption yet (see room_id being
+    passed around in the clear elsewhere already) — this is a casual
+    room chat, not a secure channel.
+    """
+
+    text = message.get("text")
+
+    if not isinstance(text, str) or not text.strip():
+        await connection_manager.send_to_player(
+            room_id,
+            player_id,
+            {"type": "error", "detail": "Chat message cannot be empty."},
+        )
+        return
+
+    text = text.strip()[:_CHAT_MAX_LENGTH]
+
+    sender = next(
+        (player for player in room.players if player.id == player_id),
+        None,
+    )
+    sender_name = sender.name if sender is not None else player_id
+
+    await connection_manager.broadcast_to_room(
+        room_id,
+        {
+            "type": "chat",
+            "player_id": player_id,
+            "name": sender_name,
+            "text": text,
+        },
+    )
+
+
 def _parse_action(
     player_id: str,
     message: dict[str, Any],
@@ -188,6 +249,7 @@ def _parse_action(
     {"type": "draw"}
     {"type": "pass"}
     {"type": "say_niko_kadi"}
+    {"type": "quit"}
     """
 
     action_type = message.get("type")
@@ -243,6 +305,12 @@ def _parse_action(
         return SayNikoKadiAction(
             player_id=player_id,
             type=ActionType.SAY_NIKO_KADI,
+        )
+
+    if action_type == "quit":
+        return QuitAction(
+            player_id=player_id,
+            type=ActionType.QUIT,
         )
 
     raise ValueError(f"Unknown action type: {action_type!r}")

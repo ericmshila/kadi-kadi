@@ -1,15 +1,16 @@
 """
 "Niko Kadi" is a promise to win on the very next turn. By default,
 every card is playable at the player's whim — including as the lone
-remaining card — so this restriction no longer fires under the
-default RuleConfig(): a King, an Ace, a Joker, any of them can be left
-as the last card in hand.
+remaining card — so a player can freely play their way down to a
+single King, Ace, Joker, or any other power card without being
+blocked. What they can't do is actually WIN the game by playing that
+card (see test_finish_rules.py) — they're just stuck holding it,
+unable to legally end their turn on it, until they can swap it out or
+draw.
 
-The underlying mechanism is still there for a stricter, opted-in
-config, though (see the "_when_restricted" tests below) — a player
-should never be allowed to play their way down to a single card that
-that stricter config says can never finish the game. They'd just be
-stuck holding it forever, unable to legally end their turn on it.
+The `restrict_lone_card_to_finishable` toggle restores the older,
+stricter behavior that blocks the play itself instead of just the
+eventual win — see the "_when_restricted" tests below.
 """
 
 import pytest
@@ -24,7 +25,7 @@ from tests.test_rules_engine import make_state
 
 
 def test_can_declare_niko_kadi_down_to_a_lone_ace_by_default():
-    rules = RuleConfig()  # ace_can_finish is True by default
+    rules = RuleConfig()  # restrict_lone_card_to_finishable is False by default
 
     state = make_state(
         hands={
@@ -51,7 +52,7 @@ def test_can_declare_niko_kadi_down_to_a_lone_ace_by_default():
 
 
 def test_cannot_declare_niko_kadi_down_to_a_lone_ace_when_restricted():
-    rules = replace(RuleConfig(), ace_can_finish=False)
+    rules = replace(RuleConfig(), restrict_lone_card_to_finishable=True)
 
     state = make_state(
         hands={
@@ -79,8 +80,11 @@ def test_cannot_declare_niko_kadi_down_to_a_lone_ace_when_restricted():
 
 def test_can_declare_niko_kadi_down_to_a_power_card_by_default():
     """
-    King is a power/effect card, but it's still in finishable_ranks
-    by default now — so being left holding only a King is fine.
+    King is a power/effect card and can't itself finish the game
+    (see test_finish_rules.py) — but being left holding only a King
+    is still fine by default; restrict_lone_card_to_finishable is
+    what would block that, and it's off unless a stricter config
+    opts in.
     """
 
     rules = RuleConfig()
@@ -110,10 +114,7 @@ def test_can_declare_niko_kadi_down_to_a_power_card_by_default():
 
 
 def test_cannot_declare_niko_kadi_down_to_a_power_card_when_restricted():
-    rules = replace(
-        RuleConfig(),
-        finishable_ranks=RuleConfig().finishable_ranks - {Rank.KING},
-    )
+    rules = replace(RuleConfig(), restrict_lone_card_to_finishable=True)
 
     state = make_state(
         hands={
@@ -188,20 +189,20 @@ def test_lone_joker_is_allowed_by_default_but_blocked_when_restricted():
     new_state, _events = apply_move(state, action, rules)
     assert new_state.hand_of("a") == (Card(Rank.JOKER, None, JokerColor.BLACK),)
 
-    restrictive_rules = replace(RuleConfig(), joker_can_finish=False)
+    restrictive_rules = replace(RuleConfig(), restrict_lone_card_to_finishable=True)
     with pytest.raises(IllegalMove):
         apply_move(state, action, restrictive_rules)
 
 
 def test_the_restriction_applies_even_without_declaring_niko_kadi():
     """
-    When a stricter config does block a lone card, the block is on
-    the state itself (ending up with an unfinishable lone card), not
-    just on the declaration flag — so it still fires even if the
-    player didn't set declare_niko_kadi on this action.
+    When restrict_lone_card_to_finishable is on, the block is on the
+    state itself (ending up with an unfinishable lone card), not just
+    on the declaration flag — so it still fires even if the player
+    didn't set declare_niko_kadi on this action.
     """
 
-    rules = replace(RuleConfig(), ace_can_finish=False)
+    rules = replace(RuleConfig(), restrict_lone_card_to_finishable=True)
 
     state = make_state(
         hands={

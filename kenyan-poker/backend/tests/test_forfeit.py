@@ -38,7 +38,7 @@ def test_punishment_draw_past_threshold_eliminates_player():
         pending_draw_count=2,
         hands={
             "a": tuple(),
-            "b": _hand_of_size(8),
+            "b": _hand_of_size(11),
             "c": tuple(),
         },
         discard_pile=(Card(Rank.TWO, Suit.HEARTS),),
@@ -49,11 +49,11 @@ def test_punishment_draw_past_threshold_eliminates_player():
 
     assert "b" in new_state.eliminated_player_ids
     assert new_state.hand_of("b") == tuple()
-    # b's forfeited hand (10 cards) goes back into the draw pile.
-    assert len(new_state.draw_pile) == len(state.draw_pile) - 2 + 10
+    # b's forfeited hand (13 cards) goes back into the draw pile.
+    assert len(new_state.draw_pile) == len(state.draw_pile) - 2 + 13
     assert any(
         event.type == EventType.PLAYER_ELIMINATED
-        and event.payload == {"player_id": "b", "hand_size": 10}
+        and event.payload == {"player_id": "b", "hand_size": 13}
         for event in events
     )
     # Turn skips the now-eliminated b and moves straight to c.
@@ -91,7 +91,7 @@ def test_voluntary_draw_past_threshold_does_not_eliminate():
     state = make_state(
         phase=Phase.AWAITING_MOVE,
         hands={
-            "a": _hand_of_size(9),
+            "a": _hand_of_size(13),
             "b": tuple(),
         },
         discard_pile=(Card(Rank.SEVEN, Suit.HEARTS),),
@@ -100,7 +100,7 @@ def test_voluntary_draw_past_threshold_does_not_eliminate():
     action = DrawAction(player_id="a", type=ActionType.DRAW)
     new_state, events = apply_move(state, action, rules)
 
-    assert len(new_state.hand_of("a")) == 10
+    assert len(new_state.hand_of("a")) == 14
     assert new_state.eliminated_player_ids == frozenset()
     assert not any(event.type == EventType.PLAYER_ELIMINATED for event in events)
 
@@ -112,7 +112,7 @@ def test_question_draw_past_threshold_does_not_eliminate():
         phase=Phase.AWAITING_ANSWER,
         pending_question_player_id="a",
         hands={
-            "a": _hand_of_size(9),
+            "a": _hand_of_size(13),
             "b": tuple(),
         },
         discard_pile=(Card(Rank.QUEEN, Suit.HEARTS),),
@@ -121,7 +121,7 @@ def test_question_draw_past_threshold_does_not_eliminate():
     action = DrawAction(player_id="a", type=ActionType.DRAW)
     new_state, events = apply_move(state, action, rules)
 
-    assert len(new_state.hand_of("a")) == 10
+    assert len(new_state.hand_of("a")) == 14
     assert new_state.eliminated_player_ids == frozenset()
     assert not any(event.type == EventType.PLAYER_ELIMINATED for event in events)
 
@@ -135,7 +135,7 @@ def test_forfeit_down_to_last_player_ends_the_game():
         phase=Phase.AWAITING_DRAW_RESPONSE,
         pending_draw_count=2,
         hands={
-            "a": _hand_of_size(8),
+            "a": _hand_of_size(11),
             "b": tuple(),
         },
         discard_pile=(Card(Rank.TWO, Suit.HEARTS),),

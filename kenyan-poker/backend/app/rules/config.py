@@ -62,46 +62,57 @@ class RuleConfig:
     ace_requires_declared_suit: bool = True
     ace_counters_punishments: bool = True
     ace_can_answer_question: bool = False
-    # Every card is playable at the player's whim — including as the
-    # very last card in hand — so nothing is ever "off-limits" to end
-    # the game on. This matters beyond just convenience: a future rule
-    # eliminating whoever holds the highest card value when the game
-    # ends (to discourage hoarding) only works if players are actually
-    # free to unload any card whenever they want, rather than being
-    # forced to keep "safe" plain cards in hand for a legal finish.
-    ace_can_finish: bool = True
+    # An Ace can never be the literal winning play — see
+    # finishable_ranks below for the full "which cards can end the
+    # game" rule and restrict_lone_card_to_finishable for the
+    # separate question of whether a player may even be LEFT holding
+    # one as their only card.
+    ace_can_finish: bool = False
 
     # Joker is always playable regardless of the top card (no suit or
     # rank match required), like Ace — but unlike Ace, it doesn't
     # declare a suit; it triggers a draw-pressure punishment instead
     # (see draw_ranks above).
     joker_can_answer_question: bool = False
-    joker_can_finish: bool = True
+    joker_can_finish: bool = False
 
     must_declare_niko_kadi: bool = True
     strict_niko_kadi: bool = True
     niko_kadi_penalty_cards: int = 2
 
-    # Every plain (non-Ace, non-Joker) rank can finish the game — see
-    # ace_can_finish above for why. Kept as an explicit, toggleable
-    # set (rather than just deleting the check) so a stricter variant
-    # can still restrict this later without an engine change.
+    # Traditional Kadi: only a plain, effect-free rank can literally
+    # end the game — every "power" rank (2/3/Joker's draw pressure,
+    # 8/Queen's question, Jack's skip, King's reverse, plus Ace, see
+    # ace_can_finish above) is excluded here on purpose. A player can
+    # still be holding one of these when they're down to one card —
+    # see restrict_lone_card_to_finishable below, which is a distinct,
+    # separately-toggleable question from whether that card can
+    # actually complete the game.
     finishable_ranks: set[Rank] = field(
         default_factory=lambda: {
-            Rank.TWO,
-            Rank.THREE,
             Rank.FOUR,
             Rank.FIVE,
             Rank.SIX,
             Rank.SEVEN,
-            Rank.EIGHT,
             Rank.NINE,
             Rank.TEN,
-            Rank.JACK,
-            Rank.QUEEN,
-            Rank.KING,
         }
     )
+
+    # Every card is playable at the player's whim — including playing
+    # your way down to a lone power card (Ace/2/3/8/J/Q/K/Joker) that
+    # can never itself finish the game (see finishable_ranks/
+    # ace_can_finish/joker_can_finish above). Left False (the
+    # default), a player is never blocked from reaching that state —
+    # they're just stuck unable to legally end their turn on it until
+    # they can swap it out or draw. This matters beyond convenience: a
+    # future rule eliminating whoever holds the highest card value
+    # when the game ends (to discourage hoarding) only works if
+    # players are actually free to unload any card whenever they
+    # want, rather than being forced to keep "safe" plain cards in
+    # hand for a legal finish. Set True to restore the older, stricter
+    # behavior that blocks the play outright instead.
+    restrict_lone_card_to_finishable: bool = False
 
     # ---------------------------------------------------------
     # Forfeit
@@ -112,4 +123,4 @@ class RuleConfig:
     # up holding this many cards or more is eliminated from the game.
     # Their hand is shuffled back into the draw pile. Set to None to
     # disable this rule entirely.
-    forfeit_hand_size: int | None = 10
+    forfeit_hand_size: int | None = 13
