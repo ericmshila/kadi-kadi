@@ -391,18 +391,37 @@ def _validate_draw_response(
             "Only another draw card, Joker, or Ace can respond to draw pressure."
         )
 
-    if _is_joker(state.top_card) and not _is_joker(card):
-        # A plain 2/3 can only counter an active Joker if it matches
-        # the Joker's colour (another Joker or an Ace always works,
-        # handled above/below).
-        required_color = _card_color(state.top_card)
+    if _is_joker(state.top_card):
+        if not _is_joker(card):
+            # A plain 2/3 can only counter an active Joker if it matches
+            # the Joker's colour (another Joker or an Ace always works,
+            # handled above/below).
+            required_color = _card_color(state.top_card)
 
-        for played in action.cards:
-            if _card_color(played) != required_color:
-                raise IllegalMove(
-                    f"Only a {required_color} card (or another Joker, or an "
-                    "Ace) can counter this Joker's draw pressure."
-                )
+            for played in action.cards:
+                if _card_color(played) != required_color:
+                    raise IllegalMove(
+                        f"Only a {required_color} card (or another Joker, or "
+                        "an Ace) can counter this Joker's draw pressure."
+                    )
+
+    elif not _is_joker(card):
+        # Countering one suited draw card (2/3) with another requires
+        # matching its suit — e.g. 3 of diamonds cancels 2 of
+        # diamonds, but 3 of diamonds does NOT cancel 2 of hearts.
+        # Unlike a normal turn play, sharing a rank isn't its own
+        # escape hatch here — "another draw card" alone (regardless of
+        # suit) used to be enough, but that let players cancel
+        # punishment with a completely unrelated card. A Joker can
+        # still counter unconditionally (it has no suit of its own),
+        # same as before.
+        required_suit = _required_suit(state)
+
+        if not any(played.suit == required_suit for played in action.cards):
+            raise IllegalMove(
+                f"Only a {required_suit.value} card (or a Joker, or an Ace) "
+                "can counter this draw pressure."
+            )
 
 
 def _validate_skip_response(

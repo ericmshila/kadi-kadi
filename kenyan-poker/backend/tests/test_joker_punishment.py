@@ -298,13 +298,14 @@ def test_normal_play_resumes_the_suit_underneath_a_resolved_joker_chain():
     assert new_state.current_player.id == "b"
 
 
-def test_wrong_color_still_valid_once_a_plain_two_is_on_top():
+def test_suit_not_color_governs_once_a_plain_two_is_on_top():
     """
     The colour restriction only applies while a Joker is directly on
     top of the discard pile. Once someone stacks a plain 2/3 on top
-    of it, normal 2/3-vs-2/3 stacking rules resume (any 2 or 3
-    counters, no colour check) — matching how 2s and 3s already
-    counter each other regardless of suit.
+    of it, the colour check is gone — but normal suit-matching for
+    draw counters (see test_draw_response_suit_matching.py) applies
+    instead: a 3 of spades matches the 2 of spades now on top, even
+    though its colour wouldn't have matched the Joker underneath.
     """
 
     rules = RuleConfig()
@@ -312,7 +313,7 @@ def test_wrong_color_still_valid_once_a_plain_two_is_on_top():
     state = make_state(
         hands={
             "a": (
-                Card(Rank.THREE, Suit.DIAMONDS),  # red 3, "wrong" colour
+                Card(Rank.THREE, Suit.SPADES),  # matches the 2 on top by suit
                 Card(Rank.FOUR, Suit.CLUBS),
                 Card(Rank.FIVE, Suit.CLUBS),
             ),
@@ -332,9 +333,46 @@ def test_wrong_color_still_valid_once_a_plain_two_is_on_top():
     action = PlayCardsAction(
         player_id="a",
         type=ActionType.PLAY_CARDS,
-        cards=(Card(Rank.THREE, Suit.DIAMONDS),),
+        cards=(Card(Rank.THREE, Suit.SPADES),),
     )
 
     new_state, events = apply_move(state, action, rules)
 
     assert new_state.pending_draw_count == 10  # 7 + 3, no colour check applied
+
+
+def test_mismatched_suit_still_rejected_once_a_plain_two_is_on_top():
+    """
+    Same setup as above, but the 3 doesn't match the plain 2's suit —
+    the colour check is gone (this isn't a Joker anymore), but the
+    ordinary suit-matching rule for draw counters still applies and
+    still blocks it.
+    """
+
+    rules = RuleConfig()
+
+    state = make_state(
+        hands={
+            "a": (
+                Card(Rank.THREE, Suit.DIAMONDS),  # wrong suit for the 2 of spades on top
+                Card(Rank.FOUR, Suit.CLUBS),
+                Card(Rank.FIVE, Suit.CLUBS),
+            ),
+            "b": tuple(),
+        },
+        phase=Phase.AWAITING_DRAW_RESPONSE,
+        pending_draw_count=7,
+        discard_pile=(
+            Card(Rank.JOKER, None, JokerColor.BLACK),
+            Card(Rank.TWO, Suit.SPADES),
+        ),
+    )
+
+    action = PlayCardsAction(
+        player_id="a",
+        type=ActionType.PLAY_CARDS,
+        cards=(Card(Rank.THREE, Suit.DIAMONDS),),
+    )
+
+    with pytest.raises(IllegalMove):
+        apply_move(state, action, rules)

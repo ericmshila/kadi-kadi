@@ -89,6 +89,15 @@ def test_two_twos_stack_draw_pressure_by_four_not_two():
 
 
 def test_stacking_two_more_twos_onto_existing_pressure():
+    """
+    Countering a draw card now requires matching its suit (see
+    tests/test_draw_response_suit_matching.py) — so the top card here
+    is a 3 of hearts, and the group counters it because one of the
+    two 2s played (2 of hearts) matches that suit; the other (2 of
+    clubs) rides along on the shared rank, same as elsewhere in the
+    engine.
+    """
+
     rules = RuleConfig()
 
     state = make_state(
@@ -103,8 +112,8 @@ def test_stacking_two_more_twos_onto_existing_pressure():
         },
         current_player_index=1,
         phase=Phase.AWAITING_DRAW_RESPONSE,
-        pending_draw_count=2,
-        discard_pile=(Card(Rank.TWO, Suit.SPADES),),
+        pending_draw_count=3,
+        discard_pile=(Card(Rank.THREE, Suit.HEARTS),),
     )
 
     action = PlayCardsAction(
@@ -118,13 +127,13 @@ def test_stacking_two_more_twos_onto_existing_pressure():
 
     new_state, events = apply_move(state, action, rules)
 
-    assert new_state.pending_draw_count == 6
+    assert new_state.pending_draw_count == 7
 
     increase_events = [
         e for e in events if e.type == EventType.DRAW_STACK_INCREASED
     ]
     assert len(increase_events) == 1
-    assert increase_events[0].payload["pending_draw_count"] == 6
+    assert increase_events[0].payload["pending_draw_count"] == 7
 
 
 def test_two_jacks_skip_two_players_ahead():
