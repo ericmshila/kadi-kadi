@@ -219,6 +219,44 @@
   gap: 12px;
 }
 
+/* Purely decorative — a hairline gold rule with two small diamond
+   caps, echoing the felt-table inlay look, dropped in as an
+   aria-hidden div right under the top nav (see Table.tsx). No data,
+   no state, never intercepts a click (pointer-events: none), and its
+   1px height never displaces surrounding layout. */
+.table-divider {
+  position: relative;
+  height: 1px;
+  margin-top: -6px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--gold-decoration) 15%,
+    var(--gold-decoration) 85%,
+    transparent
+  );
+  pointer-events: none;
+}
+
+.table-divider::before,
+.table-divider::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  background: var(--gold-decoration);
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.table-divider::before {
+  left: 14%;
+}
+
+.table-divider::after {
+  right: 14%;
+}
+
 /* Deliberately discouraging: a muted red/warning pill rather than the
    neutral "just another button" treatment the rest of the topbar
    gets, and it never grows brighter or lifts on hover the way a
@@ -552,6 +590,16 @@
   flex-direction: column;
   align-items: center;
   gap: 14px;
+  position: relative;
+  /* Subtle radial lighting behind the current card and turn state —
+     the "spotlight on the play" effect from the redesign brief. Kept
+     to the same low-alpha gold token as the divider above so it
+     never competes with the card/text sitting on top of it. */
+  background: radial-gradient(
+    ellipse 320px 220px at 50% 32%,
+    var(--gold-decoration),
+    transparent 72%
+  );
 }
 
 .discard-pile {
@@ -1301,10 +1349,105 @@ button.playing-card.legal-play:not(.selected):hover:not(:disabled) {
 }
 
 /* ---------------------------------------------------------------
-   Small screens
+   Responsive — tablet: a lighter touch than desktop (smaller cards,
+   tighter spacing) without changing layout or document order.
    --------------------------------------------------------------- */
 
-@media (max-width: 420px) {
+@media (max-width: 768px) {
+  .app {
+    padding: 20px 14px 32px;
+  }
+
+  .table {
+    gap: 18px;
+  }
+
+  .opponent {
+    padding: 8px 12px;
+    min-width: 84px;
+  }
+
+  .opponent .avatar {
+    width: 38px;
+    height: 38px;
+    font-size: 15px;
+  }
+
+  .playing-card {
+    width: 56px;
+    height: 80px;
+  }
+
+  .playing-card .center-pip {
+    font-size: 22px;
+  }
+
+  .draw-cta {
+    padding: 13px 24px;
+    font-size: 14px;
+  }
+
+  .event-log {
+    max-height: 140px;
+  }
+}
+
+/* ---------------------------------------------------------------
+   Responsive — mobile: the hand switches to a horizontally
+   scrolling row instead of shrinking cards past a readable size, per
+   the redesign brief. Everything else keeps the same opponent panel
+   → current card → turn state → primary action → hand → log
+   document order already established above, which already matches
+   the requested mobile priority — nothing needed reordering.
+   --------------------------------------------------------------- */
+
+@media (max-width: 480px) {
+  .app {
+    padding: 16px 10px 28px;
+  }
+
+  .table {
+    gap: 14px;
+  }
+
+  .table-topbar {
+    gap: 8px;
+  }
+
+  .opponents {
+    gap: 8px;
+  }
+
+  .opponent {
+    min-width: 72px;
+    padding: 7px 10px;
+  }
+
+  .opponent .name {
+    font-size: 12px;
+  }
+
+  .opponent .count {
+    font-size: 11px;
+  }
+
+  .turn-status {
+    font-size: 16px;
+  }
+
+  .table-status .winner {
+    font-size: 22px;
+  }
+
+  .action-bar {
+    width: 100%;
+  }
+
+  .draw-cta {
+    width: 100%;
+    padding: 14px 20px;
+  }
+
   .playing-card {
     width: 52px;
     height: 74px;
@@ -1316,5 +1459,29 @@ button.playing-card.legal-play:not(.selected):hover:not(:disabled) {
 
   .lobby {
     padding: 24px 20px;
+  }
+
+  /* Horizontal scroll instead of shrinking cards further or
+     wrapping them into a cramped grid — the same trick a physical
+     hand fan uses: spread wide, scroll to see the rest. */
+  .hand-cards {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 8px;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .hand-cards .playing-card {
+    scroll-snap-align: start;
+  }
+
+  .hand-cards::-webkit-scrollbar {
+    height: 5px;
+  }
+
+  .hand-cards::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
   }
 }

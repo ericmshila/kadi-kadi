@@ -19,6 +19,19 @@
   --shadow-md: 0 12px 28px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 24px 48px rgba(0, 0, 0, 0.35);
 
+  /* Dark-panel-on-felt tokens — the recurring "a slightly lighter
+     green surface sitting on the felt" look used by the hand panel,
+     the game log, and similar in-table panels. Pulled out as tokens
+     (rather than each panel repeating its own rgba literal) so new
+     panels stay visually consistent by default. */
+  --panel-dark-bg: rgba(0, 0, 0, 0.2);
+  --panel-dark-border: rgba(255, 255, 255, 0.08);
+  --panel-dark-separator: rgba(255, 255, 255, 0.06);
+  /* Decorative-only gold, well below the brightness of --accent /
+     --accent-bright — for the thin table-edge lines and markers in
+     App.css, never for anything a player needs to read as a signal. */
+  --gold-decoration: rgba(230, 181, 44, 0.22);
+
   color-scheme: light;
   font-family: "Segoe UI", system-ui, Roboto, sans-serif;
   color: var(--text);

@@ -1,27 +1,66 @@
-feat: delay and soften the legal-card hint so a hand still requires thinking
+feat: premium card-table redesign (UI/UX only, logic untouched)
 
-The legal-card preview used to dim every unplayable card the instant
-it became your turn — which handed over the whole hand's answer at a
-glance and made a solo game feel like watching two AIs play each
-other. Two changes:
+Implements the requested visual/UX redesign brief. Reuses all existing
+state, handlers, and API/WebSocket wiring as-is — no game logic, card
+validation, turn logic, or multiplayer behavior changed. Backend
+untouched (129 tests still pass).
 
-1. Dimming is gone entirely. A card that isn't currently playable now
-   renders exactly like any other card — no opacity/saturation
-   penalty. PlayingCard's `legal` prop is effectively positive-only
-   now (`true` glows, anything else is plain); the old
-   `.illegal-play` styling and CSS are removed.
+Component decomposition (partial, per the brief's own "if
+appropriate... do not unnecessarily rewrite" hedge):
+- New OpponentPanel.tsx, CurrentCard.tsx, DrawButton.tsx (renamed
+  from the old in-file ActionBar), each taking the same props/data
+  Table.tsx already had — no new state, no hardcoded names/counts/
+  cards, everything still comes from room.state.
+- Deliberately did NOT extract TurnIndicator, GameHeader, QuitButton,
+  or the individual Chat/Sound buttons into their own files: those
+  are tightly interleaved with turn-status/pressure-pulse/aria-live
+  logic that's already covered by tests and prior verification passes,
+  and splitting them added regression risk without a real readability
+  win. This — plus the loading-state note below — is the adapted
+  portion of the brief; the rest was implemented as specified.
 
-2. The remaining hint — a subtle, gently pulsing gold glow on
-   playable cards — is withheld for the first 3 seconds of every new
-   decision (Table.tsx's new `hintsRevealed` timer), giving the
-   player a moment to actually look at their hand and think before
-   any assist appears. The timer restarts on a fresh turn, a
-   mid-turn phase change (e.g. you play a question card and
-   immediately owe an answer), or your hand size changing (you just
-   drew) — and is correctly gated behind the shuffle-overlay
-   animation too, so the countdown doesn't secretly burn down while
-   the hand is still hidden behind it.
+Decorative table elements: a subtle gold hairline divider with two
+diamond caps under the top nav, and a soft radial glow behind the
+current card/turn area — both aria-hidden, pointer-events: none, and
+driven by two new low-alpha CSS tokens (--gold-decoration,
+--panel-dark-* for future dark-panel work) rather than one-off
+literals.
 
-Verified: tsc/build/lint clean, and a live Playwright pass confirming
-no glow and no dimming at 0s or 1.5s into a turn, a glow appearing by
-~3.5s, and zero illegal-play elements ever rendered at any point.
+Responsive design: added a real tablet tier (768px) and a fleshed-out
+mobile tier (480px, replacing the old single crude breakpoint). Mobile
+switches the hand to horizontal scroll instead of shrinking cards
+below a readable size. Document order (opponent panel → current card
+→ turn state → primary action → hand → log) already matched the
+brief's mobile priority list, so no reordering was needed.
+
+Accessibility: PlayingCard's interactive button now carries
+aria-pressed and a real aria-label built from the card's own rank/
+suit data ("Queen of spades", "Joker, red", "...selected" when
+picked) — never a hardcoded string. Added aria-live="polite" to the
+turn-status region so turn/pressure changes are announced without
+relying on color alone.
+
+Explicitly skipped: a fake "loading" state on the Draw button. The
+brief asks for one, but there's no real async request state in this
+fire-and-forget WebSocket architecture to represent — fabricating one
+would violate the brief's own "do not create fake functionality"
+rule. Also skipped a full mechanical rgba-literal-to-token refactor of
+pre-existing CSS (App.css/index.css) that was already visually correct
+from prior turns' work this session — only new/touched rules use the
+new tokens, to avoid a large-diff, high-regression-risk pass with no
+visible benefit.
+
+Everything else in the 20-section brief (deep emerald/gold palette,
+opponent avatars with gold rings, gold "YOUR TURN" state, gold CTA
+draw button, ivory cards with correct suit colors and Unicode suit
+glyphs, "NAME (N CARDS)" hand label with info icon, structured game
+log with icons/timestamps, discouraging Forfeit Match flow, max
+content width, hover/press/disabled button states, subtle-only
+animations) was already satisfied by this session's earlier turns or
+implemented here — well under the 40% skip/adapt allowance.
+
+Verified: tsc/build/lint clean, backend pytest 129 passed (no backend
+changes), and a live Playwright pass covering desktop/tablet/mobile
+screenshots, the mobile horizontal-scroll hand, aria-pressed/aria-label
+on cards, the delayed legal-hint glow, and the Forfeit Match confirm/
+cancel flow.

@@ -9,6 +9,27 @@ const SUIT_SYMBOLS: Record<Suit, string> = {
 
 const RED_SUITS = new Set<Suit>(["hearts", "diamonds"]);
 
+const RANK_NAMES: Record<string, string> = {
+  J: "Jack",
+  Q: "Queen",
+  K: "King",
+  A: "Ace",
+};
+
+// A screen-reader-friendly description ("6 of diamonds", "Ace of
+// spades", "Joker, red") built from the card's own data — never a
+// hardcoded card name — for the interactive button's aria-label, so
+// selection state and card identity are both announced without
+// relying on color or a visual glow alone.
+function describeCard(card: CardView): string {
+  if (card.rank === "JOKER") {
+    return card.joker_color ? `Joker, ${card.joker_color}` : "Joker";
+  }
+
+  const rankName = RANK_NAMES[card.rank] ?? card.rank;
+  return card.suit ? `${rankName} of ${card.suit}` : rankName;
+}
+
 interface PlayingCardProps {
   card: CardView;
   onClick?: () => void;
@@ -84,12 +105,22 @@ export function PlayingCard({
     return <div className={className}>{content}</div>;
   }
 
+  const description = describeCard(card);
+
   return (
     <button
       type="button"
       className={className}
       onClick={onClick}
       disabled={disabled}
+      aria-pressed={selected ?? false}
+      aria-label={
+        selected
+          ? `${description}, selected`
+          : legal === true
+            ? `${description}, playable`
+            : description
+      }
     >
       {content}
     </button>
