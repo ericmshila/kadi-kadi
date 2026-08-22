@@ -62,27 +62,44 @@ class RuleConfig:
     ace_requires_declared_suit: bool = True
     ace_counters_punishments: bool = True
     ace_can_answer_question: bool = False
-    ace_can_finish: bool = False
+    # Every card is playable at the player's whim — including as the
+    # very last card in hand — so nothing is ever "off-limits" to end
+    # the game on. This matters beyond just convenience: a future rule
+    # eliminating whoever holds the highest card value when the game
+    # ends (to discourage hoarding) only works if players are actually
+    # free to unload any card whenever they want, rather than being
+    # forced to keep "safe" plain cards in hand for a legal finish.
+    ace_can_finish: bool = True
 
     # Joker is always playable regardless of the top card (no suit or
     # rank match required), like Ace — but unlike Ace, it doesn't
     # declare a suit; it triggers a draw-pressure punishment instead
     # (see draw_ranks above).
     joker_can_answer_question: bool = False
-    joker_can_finish: bool = False
+    joker_can_finish: bool = True
 
     must_declare_niko_kadi: bool = True
     strict_niko_kadi: bool = True
     niko_kadi_penalty_cards: int = 2
 
+    # Every plain (non-Ace, non-Joker) rank can finish the game — see
+    # ace_can_finish above for why. Kept as an explicit, toggleable
+    # set (rather than just deleting the check) so a stricter variant
+    # can still restrict this later without an engine change.
     finishable_ranks: set[Rank] = field(
         default_factory=lambda: {
+            Rank.TWO,
+            Rank.THREE,
             Rank.FOUR,
             Rank.FIVE,
             Rank.SIX,
             Rank.SEVEN,
+            Rank.EIGHT,
             Rank.NINE,
             Rank.TEN,
+            Rank.JACK,
+            Rank.QUEEN,
+            Rank.KING,
         }
     )
 

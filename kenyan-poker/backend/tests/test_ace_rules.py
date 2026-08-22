@@ -89,31 +89,9 @@ def test_ace_can_answer_question_when_enabled_but_cannot_declare_a_suit():
     assert any(e.type == EventType.ACE_COUNTER_PLAYED for e in events)
 
 
-def test_ace_cannot_finish_by_default():
+def test_ace_can_finish_by_default():
     rules = RuleConfig()
-    assert rules.ace_can_finish is False
-
-    state = make_state(
-        hands={
-            "a": (Card(Rank.ACE, Suit.SPADES),),
-            "b": tuple(),
-        },
-        discard_pile=(Card(Rank.SEVEN, Suit.HEARTS),),
-    )
-
-    action = PlayCardsAction(
-        player_id="a",
-        type=ActionType.PLAY_CARDS,
-        cards=(Card(Rank.ACE, Suit.SPADES),),
-        declared_suit=Suit.CLUBS,
-    )
-
-    with pytest.raises(IllegalMove):
-        apply_move(state, action, rules)
-
-
-def test_ace_can_finish_when_enabled():
-    rules = replace(RuleConfig(), ace_can_finish=True)
+    assert rules.ace_can_finish is True
 
     state = make_state(
         hands={
@@ -134,3 +112,25 @@ def test_ace_can_finish_when_enabled():
 
     assert new_state.phase == Phase.FINISHED
     assert new_state.winner_id == "a"
+
+
+def test_ace_cannot_finish_when_restricted():
+    rules = replace(RuleConfig(), ace_can_finish=False)
+
+    state = make_state(
+        hands={
+            "a": (Card(Rank.ACE, Suit.SPADES),),
+            "b": tuple(),
+        },
+        discard_pile=(Card(Rank.SEVEN, Suit.HEARTS),),
+    )
+
+    action = PlayCardsAction(
+        player_id="a",
+        type=ActionType.PLAY_CARDS,
+        cards=(Card(Rank.ACE, Suit.SPADES),),
+        declared_suit=Suit.CLUBS,
+    )
+
+    with pytest.raises(IllegalMove):
+        apply_move(state, action, rules)
