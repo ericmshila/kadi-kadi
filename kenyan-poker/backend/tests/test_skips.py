@@ -100,3 +100,45 @@ def test_pass_still_works_when_skip_cannot_be_countered():
 
     assert new_state.phase == Phase.AWAITING_MOVE
     assert new_state.current_player.id == "c"
+
+
+def test_ace_counters_a_skip_without_declaring_a_suit():
+    """
+    Countering a skip with an Ace is reactive, same as countering
+    draw pressure — it clears the obligation but doesn't grant the
+    "declare the next suit" power an offensively-played Ace gets.
+    """
+
+    rules = RuleConfig()
+
+    state = make_state(
+        player_count=3,
+        current_player_index=1,
+        phase=Phase.AWAITING_SKIP_RESPONSE,
+        pending_skip_player_id="b",
+        hands={
+            "a": tuple(),
+            "b": (
+                Card(Rank.ACE, Suit.CLUBS),
+                Card(Rank.FOUR, Suit.HEARTS),
+            ),
+            "c": tuple(),
+        },
+        discard_pile=(Card(Rank.JACK, Suit.HEARTS),),
+    )
+
+    action = PlayCardsAction(
+        player_id="b",
+        type=ActionType.PLAY_CARDS,
+        cards=(Card(Rank.ACE, Suit.CLUBS),),
+        declared_suit=Suit.HEARTS,  # ignored — Ace is countering, not opening
+        declare_niko_kadi=True,  # leaves a lone, finishable 4 — not what this test checks
+    )
+
+    new_state, events = apply_move(state, action, rules)
+
+    assert new_state.phase == Phase.AWAITING_MOVE
+    assert new_state.active_suit is None
+    assert new_state.pending_skip_player_id is None
+    assert any(event.type == EventType.ACE_COUNTER_PLAYED for event in events)
+    assert not any(event.type == EventType.SUIT_DECLARED for event in events)

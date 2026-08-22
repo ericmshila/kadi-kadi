@@ -349,7 +349,9 @@ def _validate_question_response(
     card = action.cards[0]
 
     if _is_ace(card) and rules.ace_can_answer_question:
-        _validate_declared_suit_for_ace(action, rules)
+        # Reactive, not offensive — an Ace played to get out of a
+        # question doesn't also get to declare the next suit (see
+        # _apply_ace_effect).
         return
 
     if _is_joker(card) and rules.joker_can_answer_question:
@@ -376,7 +378,9 @@ def _validate_draw_response(
     card = action.cards[0]
 
     if _is_ace(card) and rules.ace_counters_punishments:
-        _validate_declared_suit_for_ace(action, rules)
+        # Reactive, not offensive — an Ace played to counter draw
+        # pressure doesn't also get to declare the next suit (see
+        # _apply_ace_effect).
         return
 
     if not rules.draw_stacking_enabled:
@@ -413,7 +417,9 @@ def _validate_skip_response(
     card = action.cards[0]
 
     if _is_ace(card) and rules.ace_counters_punishments:
-        _validate_declared_suit_for_ace(action, rules)
+        # Reactive, not offensive — an Ace played to counter a skip
+        # doesn't also get to declare the next suit (see
+        # _apply_ace_effect).
         return
 
     if card.rank not in rules.skip_ranks:
@@ -610,14 +616,28 @@ def _apply_ace_effect(
     action: PlayCardsAction,
     events: list[GameEvent],
 ) -> tuple[GameState, list[GameEvent]]:
+    """
+    An Ace played on a normal turn is offensive: it's always playable
+    and the player gets to declare the next suit.
+
+    An Ace played to counter a pending question/draw/skip is
+    reactive: it clears the obligation, but — unlike the offensive
+    case — does NOT also grant the suit-declare power. Any
+    declared_suit the client sends in that situation is ignored;
+    active_suit is left unset, so normal play afterwards just follows
+    the Ace's own printed suit (via _required_suit's discard-pile
+    walk-back), the same as any other card would.
+    """
 
     player_id = action.player_id
 
-    if state.phase in {
+    is_countering = state.phase in {
         Phase.AWAITING_ANSWER,
         Phase.AWAITING_DRAW_RESPONSE,
         Phase.AWAITING_SKIP_RESPONSE,
-    }:
+    }
+
+    if is_countering:
         events.append(
             GameEvent(
                 type=EventType.ACE_COUNTER_PLAYED,
@@ -632,22 +652,26 @@ def _apply_ace_effect(
             )
         )
 
-    events.append(
-        GameEvent(
-            type=EventType.SUIT_DECLARED,
-            payload={
-                "player_id": player_id,
-                "suit": action.declared_suit.value if action.declared_suit else None,
-            },
+        declared_suit = None
+    else:
+        declared_suit = action.declared_suit
+
+        events.append(
+            GameEvent(
+                type=EventType.SUIT_DECLARED,
+                payload={
+                    "player_id": player_id,
+                    "suit": declared_suit.value if declared_suit else None,
+                },
+            )
         )
-    )
 
     new_state = state.replace(
         phase=Phase.AWAITING_MOVE,
         pending_draw_count=0,
         pending_question_player_id=None,
         pending_skip_player_id=None,
-        active_suit=action.declared_suit,
+        active_suit=declared_suit,
     )
 
     new_state, turn_events = _advance_turn(new_state, steps=1)

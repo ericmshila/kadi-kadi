@@ -340,6 +340,15 @@ def test_draw_card_creates_pending_draw_response():
 
 
 def test_ace_counters_draw_punishment():
+    """
+    Countering draw pressure with an Ace is reactive, not the
+    offensive normal-turn play — it clears the punishment but does
+    NOT grant the "declare the next suit" power (any declared_suit
+    sent along with it is ignored). Follow-up play instead falls back
+    to the Ace's own printed suit, same as any other card would (see
+    _required_suit's discard-pile walk-back).
+    """
+
     rules = RuleConfig()
 
     state = make_state(
@@ -360,7 +369,7 @@ def test_ace_counters_draw_punishment():
         player_id="b",
         type=ActionType.PLAY_CARDS,
         cards=(Card(Rank.ACE, Suit.SPADES),),
-        declared_suit=Suit.CLUBS,
+        declared_suit=Suit.CLUBS,  # ignored — Ace is countering, not opening
         declare_niko_kadi=True,
     )
 
@@ -368,8 +377,10 @@ def test_ace_counters_draw_punishment():
 
     assert new_state.phase == Phase.AWAITING_MOVE
     assert new_state.pending_draw_count == 0
-    assert new_state.active_suit == Suit.CLUBS
+    assert new_state.active_suit is None
+    assert new_state.top_card == Card(Rank.ACE, Suit.SPADES)
     assert any(event.type == EventType.PUNISHMENT_CLEARED for event in events)
+    assert not any(event.type == EventType.SUIT_DECLARED for event in events)
 
 
 def test_jack_starts_skip_response():
